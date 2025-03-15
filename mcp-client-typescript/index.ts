@@ -41,35 +41,64 @@ class MCPClient {
       // Determine script type and appropriate command
       const isJs = serverScriptPath.endsWith(".js");
       const isPy = serverScriptPath.endsWith(".py");
-      if (!isJs && !isPy) {
-        throw new Error("Server script must be a .js or .py file");
+      const isDocker = serverScriptPath.includes("docker");
+      if (isDocker) {
+        const allArgs = serverScriptPath.split(" ");
+        const command = allArgs[0];
+        // Remove 'docker' from the beginning of args if present
+        const args = command === "docker" ? allArgs.slice(1) : allArgs;
+        
+        // Initialize transport and connect to server
+        this.transport = new StdioClientTransport({
+          command,
+          args,
+        });
+        this.mcp.connect(this.transport);
+
+        // List available tools
+        const toolsResult = await this.mcp.listTools();
+        this.tools = toolsResult.tools.map((tool) => {
+          return {
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.inputSchema,
+          };
+        });
+        console.log(
+          "Connected to server with tools:",
+          this.tools.map(({ name }) => name),
+        );
+      } else {
+        if (!isJs && !isPy) {
+          throw new Error("Server script must be a .js or .py file");
+        }
+        const command = isPy
+          ? process.platform === "win32"
+            ? "python"
+            : "python3"
+          : process.execPath;
+  
+        // Initialize transport and connect to server
+        this.transport = new StdioClientTransport({
+          command,
+          args: [serverScriptPath],
+        });
+        this.mcp.connect(this.transport);
+  
+        // List available tools
+        const toolsResult = await this.mcp.listTools();
+        this.tools = toolsResult.tools.map((tool) => {
+          return {
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.inputSchema,
+          };
+        });
+        console.log(
+          "Connected to server with tools:",
+          this.tools.map(({ name }) => name),
+        );
       }
-      const command = isPy
-        ? process.platform === "win32"
-          ? "python"
-          : "python3"
-        : process.execPath;
-
-      // Initialize transport and connect to server
-      this.transport = new StdioClientTransport({
-        command,
-        args: [serverScriptPath],
-      });
-      this.mcp.connect(this.transport);
-
-      // List available tools
-      const toolsResult = await this.mcp.listTools();
-      this.tools = toolsResult.tools.map((tool) => {
-        return {
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.inputSchema,
-        };
-      });
-      console.log(
-        "Connected to server with tools:",
-        this.tools.map(({ name }) => name),
-      );
     } catch (e) {
       console.log("Failed to connect to MCP server: ", e);
       throw e;
