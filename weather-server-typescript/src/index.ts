@@ -85,7 +85,7 @@ server.tool(
   {
     state: z.string().length(2).describe("Two-letter state code (e.g. CA, NY)"),
   },
-  async ({ state }) => {
+  async ({ state }: { state: string }) => {
     const stateCode = state.toUpperCase();
     const alertsUrl = `${NWS_API_BASE}/alerts?area=${stateCode}`;
     const alertsData = await makeNWSRequest<AlertsResponse>(alertsUrl);
@@ -132,13 +132,9 @@ server.tool(
   "Get weather forecast for a location",
   {
     latitude: z.number().min(-90).max(90).describe("Latitude of the location"),
-    longitude: z
-      .number()
-      .min(-180)
-      .max(180)
-      .describe("Longitude of the location"),
+    longitude: z.number().min(-180).max(180).describe("Longitude of the location"),
   },
-  async ({ latitude, longitude }) => {
+  async ({ latitude, longitude }: { latitude: number; longitude: number }) => {
     // Get grid point data
     const pointsUrl = `${NWS_API_BASE}/points/${latitude.toFixed(4)},${longitude.toFixed(4)}`;
     const pointsData = await makeNWSRequest<PointsResponse>(pointsUrl);
