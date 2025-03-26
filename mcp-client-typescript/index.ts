@@ -55,7 +55,7 @@ class MCPClient {
         command,
         args: [serverScriptPath],
       });
-      this.mcp.connect(this.transport);
+      await this.mcp.connect(this.transport);
 
       // List available tools
       const toolsResult = await this.mcp.listTools();
