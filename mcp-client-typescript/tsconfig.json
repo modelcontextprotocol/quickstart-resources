@@ -10,6 +10,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["index.ts"],
+  "include": ["index.ts", "index-openai.ts"],
   "exclude": ["node_modules"]
 }
