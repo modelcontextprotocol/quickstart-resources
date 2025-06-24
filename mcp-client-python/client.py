@@ -1,6 +1,8 @@
 import asyncio
 from typing import Optional
 from contextlib import AsyncExitStack
+import requests  # Add import for requests library
+import json  # Add import for json handling
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -16,6 +18,10 @@ class MCPClient:
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         self.anthropic = Anthropic()
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer n4MoOsTPlmquMT0sxxyrAfbp@3025",
+        }
 
     async def connect_to_server(self, server_script_path: str):
         """Connect to an MCP server
@@ -47,7 +53,7 @@ class MCPClient:
         print("\nConnected to server with tools:", [tool.name for tool in tools])
 
     async def process_query(self, query: str) -> str:
-        """Process a query using Claude and available tools"""
+        """Process a query using LLM API and available tools"""
         messages = [
             {
                 "role": "user",
@@ -55,56 +61,117 @@ class MCPClient:
             }
         ]
 
+        # Get available tools from the MCP session
         response = await self.session.list_tools()
-        available_tools = [{ 
-            "name": tool.name,
-            "description": tool.description,
-            "input_schema": tool.inputSchema
-        } for tool in response.tools]
-
-        # Initial Claude API call
-        response = self.anthropic.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
-            messages=messages,
-            tools=available_tools
-        )
-
-        # Process response and handle tool calls
-        final_text = []
-
-        for content in response.content:
-            if content.type == 'text':
-                final_text.append(content.text)
-            elif content.type == 'tool_use':
-                tool_name = content.name
-                tool_args = content.input
+        mcp_tools = response.tools
+        
+        # Convert MCP tools to OpenAI format
+        openai_tools = []
+        for tool in mcp_tools:
+            # Process inputSchema - it might be already a dict or a JSON string
+            if isinstance(tool.inputSchema, str):
+                parameters = json.loads(tool.inputSchema)
+            else:
+                parameters = tool.inputSchema
                 
-                # Execute tool call
-                result = await self.session.call_tool(tool_name, tool_args)
-                final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
+            # Convert each MCP tool to OpenAI tool format
+            openai_tool = {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": parameters
+                }
+            }
+            openai_tools.append(openai_tool)
 
-                # Continue conversation with tool results
-                if hasattr(content, 'text') and content.text:
+        # Initial LLM API call
+        url = "http://v2.open.venus.oa.com/llmproxy/chat/completions"
+        model = "qwen3-235b-a22b-fp8-local-II"
+
+        # API call parameters with OpenAI format tools
+        data = {
+            "model": model,
+            "messages": messages,
+            "tools": openai_tools  # Use the converted OpenAI format tools
+        }
+        
+        try:
+            llm_response = requests.post(url, headers=self.headers, json=data)
+            llm_response.raise_for_status()
+            response_data = llm_response.json()
+            
+            # Process response and handle tool calls
+            final_text = []
+            
+            # Extract the response content
+            assistant_message = response_data['choices'][0]['message']
+            assistant_content = assistant_message.get('content', '')
+            
+            if assistant_content:
+                final_text.append(assistant_content)
+            
+            # Handle tool calls if present
+            tool_calls = assistant_message.get('tool_calls', [])
+            
+            if tool_calls:
+                for tool_call in tool_calls:
+                    tool_name = tool_call['function']['name']
+                    tool_args = json.loads(tool_call['function']['arguments'])
+                    
+                    # Execute tool call using MCP
+                    result = await self.session.call_tool(tool_name, tool_args)
+                    
+                    # Convert TextContent object to string if needed
+                    tool_result_content = str(result.content) if hasattr(result, 'content') else str(result)
+                    
+                    final_text.append(f"[Tool {tool_name} result: {tool_result_content[:200]}...]")
+                    
+                    # Continue conversation with tool results
                     messages.append({
-                      "role": "assistant",
-                      "content": content.text
+                        "role": "assistant",
+                        "content": assistant_content,
+                        "tool_calls": [tool_call]
                     })
-                messages.append({
-                    "role": "user", 
-                    "content": result.content
-                })
+                    
+                    messages.append({
+                        "role": "tool", 
+                        "tool_call_id": tool_call['id'],
+                        "name": tool_name,
+                        "content": tool_result_content
+                    })
+                    
+                    # Get next response from LLM API
+                    llm_response = requests.post(
+                        url,
+                        headers=self.headers,
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "tools": openai_tools
+                        }
+                    )
+                    llm_response.raise_for_status()
+                    next_response_data = llm_response.json()
+                    
+                    next_content = next_response_data['choices'][0]['message'].get('content', '')
+                    if next_content:
+                        final_text.append(next_content)
 
-                # Get next response from Claude
-                response = self.anthropic.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1000,
-                    messages=messages,
-                )
-
-                final_text.append(response.content[0].text)
-
-        return "\n".join(final_text)
+                return "\n".join(final_text)
+            else:
+                # No tool calls, just return the content
+                return assistant_content
+        
+        except Exception as e:
+            print(f"Error calling LLM API: {str(e)}")
+            if 'llm_response' in locals() and hasattr(llm_response, 'text'):
+                print(f"Response text: {llm_response.text}")
+            
+            # Try to provide a useful error response
+            if 'response_data' in locals() and assistant_content:
+                return f"Error processing tool calls, but I can tell you that: {assistant_content}"
+            return f"Error when calling LLM API: {str(e)}"
 
     async def chat_loop(self):
         """Run an interactive chat loop"""

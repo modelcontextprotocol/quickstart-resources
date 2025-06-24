@@ -1,0 +1,49 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "MCP Client with Weather Python Server",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/mcp-client-python/client.py",
+            "args": ["${workspaceFolder}/weather-server-python/weather.py"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "MCP Client with Weather Main",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/mcp-client-python/client.py",
+            "args": ["${workspaceFolder}/weather/main.py"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "MCP Client with TypeScript Server",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/mcp-client-python/client.py",
+            "args": ["${workspaceFolder}/weather-server-typescript/src/index.ts"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "MCP Client with Custom Server Script",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/mcp-client-python/client.py",
+            "args": ["${input:serverScriptPath}"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ],
+    "inputs": [
+        {
+            "id": "serverScriptPath",
+            "type": "promptString",
+            "description": "Enter the path to the server script",
+            "default": "${workspaceFolder}/weather-server-python/weather.py"
+        }
+    ]
+}
