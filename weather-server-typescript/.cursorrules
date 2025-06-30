@@ -1,0 +1,30 @@
+# Cursor MCP Configuration
+
+## MCP Weather Server
+This project includes a Model Context Protocol (MCP) weather server that provides weather information for Chinese cities.
+
+### Available Tools:
+- `get_current_weather` - Get current weather for a specific city
+- `get_weather_forecast` - Get weather forecast for a specific city
+- `list_supported_cities` - List all supported cities
+- `get_weather_advice` - Get weather-based travel advice
+
+### Available Resources:
+- `weather://data/current` - Current weather data for all cities
+- `weather://data/forecast` - Weather forecast data for all cities
+- `weather://data/cities` - List of supported cities
+
+### Supported Cities:
+- 北京 (Beijing)
+- 上海 (Shanghai)
+- 广州 (Guangzhou)
+- 深圳 (Shenzhen)
+- 杭州 (Hangzhou)
+
+### Usage Examples:
+- "What's the weather in Beijing?"
+- "Get weather forecast for Shanghai"
+- "List all supported cities"
+- "Give me weather advice for Guangzhou"
+
+The MCP server is configured to run with: `node build/index.js` 

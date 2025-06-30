@@ -1,228 +1,349 @@
+#!/usr/bin/env node
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const NWS_API_BASE = "https://api.weather.gov";
-const USER_AGENT = "weather-app/1.0";
+// 定义天气数据类型
+interface WeatherCurrent {
+  temperature: number;
+  condition: string;
+  humidity: number;
+  windSpeed: number;
+  visibility: number;
+}
 
-// Helper function for making NWS API requests
-async function makeNWSRequest<T>(url: string): Promise<T | null> {
-  const headers = {
-    "User-Agent": USER_AGENT,
-    Accept: "application/geo+json",
-  };
+interface WeatherForecast {
+  date: string;
+  high: number;
+  low: number;
+  condition: string;
+}
 
-  try {
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    console.error("Error making NWS request:", error);
-    return null;
+interface WeatherData {
+  current: WeatherCurrent;
+  forecast: WeatherForecast[];
+}
+
+interface WeatherDataMap {
+  [city: string]: WeatherData;
+}
+
+// 模拟天气数据
+const weatherData: WeatherDataMap = {
+  "北京": {
+    current: {
+      temperature: 22,
+      condition: "晴天",
+      humidity: 45,
+      windSpeed: 12,
+      visibility: 10
+    },
+    forecast: [
+      { date: "2024-01-15", high: 25, low: 18, condition: "晴天" },
+      { date: "2024-01-16", high: 23, low: 16, condition: "多云" },
+      { date: "2024-01-17", high: 20, low: 14, condition: "小雨" },
+      { date: "2024-01-18", high: 22, low: 15, condition: "多云" },
+      { date: "2024-01-19", high: 24, low: 17, condition: "晴天" }
+    ]
+  },
+  "上海": {
+    current: {
+      temperature: 25,
+      condition: "多云",
+      humidity: 65,
+      windSpeed: 8,
+      visibility: 8
+    },
+    forecast: [
+      { date: "2024-01-15", high: 20, low: 15, condition: "多云" },
+      { date: "2024-01-16", high: 18, low: 12, condition: "小雨" },
+      { date: "2024-01-17", high: 16, low: 10, condition: "中雨" },
+      { date: "2024-01-18", high: 19, low: 13, condition: "多云" },
+      { date: "2024-01-19", high: 21, low: 14, condition: "晴天" }
+    ]
+  },
+  "广州": {
+    current: {
+      temperature: 25,
+      condition: "晴天",
+      humidity: 70,
+      windSpeed: 5,
+      visibility: 12
+    },
+    forecast: [
+      { date: "2024-01-15", high: 27, low: 20, condition: "晴天" },
+      { date: "2024-01-16", high: 26, low: 19, condition: "多云" },
+      { date: "2024-01-17", high: 24, low: 18, condition: "小雨" },
+      { date: "2024-01-18", high: 25, low: 19, condition: "多云" },
+      { date: "2024-01-19", high: 28, low: 21, condition: "晴天" }
+    ]
+  },
+  "深圳": {
+    current: {
+      temperature: 26,
+      condition: "晴天",
+      humidity: 68,
+      windSpeed: 6,
+      visibility: 15
+    },
+    forecast: [
+      { date: "2024-01-15", high: 28, low: 21, condition: "晴天" },
+      { date: "2024-01-16", high: 27, low: 20, condition: "多云" },
+      { date: "2024-01-17", high: 25, low: 19, condition: "小雨" },
+      { date: "2024-01-18", high: 26, low: 20, condition: "多云" },
+      { date: "2024-01-19", high: 29, low: 22, condition: "晴天" }
+    ]
+  },
+  "杭州": {
+    current: {
+      temperature: 20,
+      condition: "多云",
+      humidity: 60,
+      windSpeed: 10,
+      visibility: 9
+    },
+    forecast: [
+      { date: "2024-01-15", high: 22, low: 16, condition: "多云" },
+      { date: "2024-01-16", high: 20, low: 14, condition: "小雨" },
+      { date: "2024-01-17", high: 18, low: 12, condition: "中雨" },
+      { date: "2024-01-18", high: 21, low: 15, condition: "多云" },
+      { date: "2024-01-19", high: 23, low: 17, condition: "晴天" }
+    ]
   }
-}
+};
 
-interface AlertFeature {
-  properties: {
-    event?: string;
-    areaDesc?: string;
-    severity?: string;
-    status?: string;
-    headline?: string;
-  };
-}
-
-// Format alert data
-function formatAlert(feature: AlertFeature): string {
-  const props = feature.properties;
-  return [
-    `Event: ${props.event || "Unknown"}`,
-    `Area: ${props.areaDesc || "Unknown"}`,
-    `Severity: ${props.severity || "Unknown"}`,
-    `Status: ${props.status || "Unknown"}`,
-    `Headline: ${props.headline || "No headline"}`,
-    "---",
-  ].join("\n");
-}
-
-interface ForecastPeriod {
-  name?: string;
-  temperature?: number;
-  temperatureUnit?: string;
-  windSpeed?: string;
-  windDirection?: string;
-  shortForecast?: string;
-}
-
-interface AlertsResponse {
-  features: AlertFeature[];
-}
-
-interface PointsResponse {
-  properties: {
-    forecast?: string;
-  };
-}
-
-interface ForecastResponse {
-  properties: {
-    periods: ForecastPeriod[];
-  };
-}
-
-// Create server instance
+// 创建MCP服务器
 const server = new McpServer({
-  name: "weather",
-  version: "1.0.0",
+  name: "weather-server",
+  version: "1.0.0"
 });
 
-// Register weather tools
+// 注册工具：获取当前天气
 server.tool(
-  "get-alerts",
-  "Get weather alerts for a state",
+  "get_current_weather",
+  "获取指定城市的当前天气信息",
   {
-    state: z.string().length(2).describe("Two-letter state code (e.g. CA, NY)"),
+    city: z.enum(Object.keys(weatherData) as [string, ...string[]]).describe("城市名称")
   },
-  async ({ state }) => {
-    const stateCode = state.toUpperCase();
-    const alertsUrl = `${NWS_API_BASE}/alerts?area=${stateCode}`;
-    const alertsData = await makeNWSRequest<AlertsResponse>(alertsUrl);
-
-    if (!alertsData) {
+  async (args) => {
+    const { city } = args;
+    
+    if (!weatherData[city]) {
       return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to retrieve alerts data",
-          },
-        ],
+        content: [{
+          type: "text",
+          text: `抱歉，没有找到城市 "${city}" 的天气信息。支持的城市包括：${Object.keys(weatherData).join(", ")}`
+        }]
       };
     }
 
-    const features = alertsData.features || [];
-    if (features.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `No active alerts for ${stateCode}`,
-          },
-        ],
-      };
-    }
-
-    const formattedAlerts = features.map(formatAlert);
-    const alertsText = `Active alerts for ${stateCode}:\n\n${formattedAlerts.join("\n")}`;
+    const current = weatherData[city].current;
+    const weatherText = `${city}当前天气：
+温度：${current.temperature}°C
+天气状况：${current.condition}
+湿度：${current.humidity}%
+风速：${current.windSpeed} km/h
+能见度：${current.visibility} km`;
 
     return {
-      content: [
-        {
-          type: "text",
-          text: alertsText,
-        },
-      ],
+      content: [{
+        type: "text",
+        text: weatherText
+      }]
     };
-  },
+  }
 );
 
+// 注册工具：获取天气预报
 server.tool(
-  "get-forecast",
-  "Get weather forecast for a location",
+  "get_weather_forecast",
+  "获取指定城市的5天天气预报",
   {
-    latitude: z.number().min(-90).max(90).describe("Latitude of the location"),
-    longitude: z
-      .number()
-      .min(-180)
-      .max(180)
-      .describe("Longitude of the location"),
+    city: z.enum(Object.keys(weatherData) as [string, ...string[]]).describe("城市名称"),
+    days: z.number().min(1).max(5).default(5).describe("预报天数（1-5天）")
   },
-  async ({ latitude, longitude }) => {
-    // Get grid point data
-    const pointsUrl = `${NWS_API_BASE}/points/${latitude.toFixed(4)},${longitude.toFixed(4)}`;
-    const pointsData = await makeNWSRequest<PointsResponse>(pointsUrl);
-
-    if (!pointsData) {
+  async (args) => {
+    const { city, days } = args;
+    
+    if (!weatherData[city]) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Failed to retrieve grid point data for coordinates: ${latitude}, ${longitude}. This location may not be supported by the NWS API (only US locations are supported).`,
-          },
-        ],
+        content: [{
+          type: "text",
+          text: `抱歉，没有找到城市 "${city}" 的天气信息。支持的城市包括：${Object.keys(weatherData).join(", ")}`
+        }]
       };
     }
 
-    const forecastUrl = pointsData.properties?.forecast;
-    if (!forecastUrl) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to get forecast URL from grid point data",
-          },
-        ],
-      };
-    }
-
-    // Get forecast data
-    const forecastData = await makeNWSRequest<ForecastResponse>(forecastUrl);
-    if (!forecastData) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to retrieve forecast data",
-          },
-        ],
-      };
-    }
-
-    const periods = forecastData.properties?.periods || [];
-    if (periods.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No forecast periods available",
-          },
-        ],
-      };
-    }
-
-    // Format forecast periods
-    const formattedForecast = periods.map((period: ForecastPeriod) =>
-      [
-        `${period.name || "Unknown"}:`,
-        `Temperature: ${period.temperature || "Unknown"}°${period.temperatureUnit || "F"}`,
-        `Wind: ${period.windSpeed || "Unknown"} ${period.windDirection || ""}`,
-        `${period.shortForecast || "No forecast available"}`,
-        "---",
-      ].join("\n"),
-    );
-
-    const forecastText = `Forecast for ${latitude}, ${longitude}:\n\n${formattedForecast.join("\n")}`;
+    const forecast = weatherData[city].forecast.slice(0, days);
+    let forecastText = `${city}未来${days}天天气预报：\n\n`;
+    
+    forecast.forEach((day: WeatherForecast, index: number) => {
+      forecastText += `${index + 1}. ${day.date}：${day.condition}，最高${day.high}°C，最低${day.low}°C\n`;
+    });
 
     return {
-      content: [
-        {
-          type: "text",
-          text: forecastText,
-        },
-      ],
+      content: [{
+        type: "text",
+        text: forecastText
+      }]
     };
-  },
+  }
 );
 
-// Start the server
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("Weather MCP Server running on stdio");
-}
+// 注册工具：获取所有支持的城市
+server.tool(
+  "list_supported_cities",
+  "获取所有支持天气查询的城市列表",
+  async () => {
+    const cities = Object.keys(weatherData);
+    return {
+      content: [{
+        type: "text",
+        text: `支持的城市列表：\n${cities.map((city: string, index: number) => `${index + 1}. ${city}`).join('\n')}`
+      }]
+    };
+  }
+);
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
-  process.exit(1);
-});
+// 注册工具：获取天气建议
+server.tool(
+  "get_weather_advice",
+  "根据当前天气提供出行建议",
+  {
+    city: z.enum(Object.keys(weatherData) as [string, ...string[]]).describe("城市名称")
+  },
+  async (args) => {
+    const { city } = args;
+    
+    if (!weatherData[city]) {
+      return {
+        content: [{
+          type: "text",
+          text: `抱歉，没有找到城市 "${city}" 的天气信息。`
+        }]
+      };
+    }
+
+    const current = weatherData[city].current;
+    let advice = `${city}天气建议：\n\n`;
+    
+    // 根据温度提供建议
+    if (current.temperature < 10) {
+      advice += "🌡️ 温度较低，建议穿厚外套，注意保暖\n";
+    } else if (current.temperature > 30) {
+      advice += "🌡️ 温度较高，建议穿轻薄衣物，注意防暑\n";
+    } else {
+      advice += "🌡️ 温度适宜，建议穿舒适衣物\n";
+    }
+    
+    // 根据天气状况提供建议
+    if (current.condition.includes("雨")) {
+      advice += "☔ 有雨，建议携带雨伞，注意路面湿滑\n";
+    } else if (current.condition.includes("雪")) {
+      advice += "❄️ 有雪，建议穿防滑鞋，注意保暖\n";
+    } else if (current.condition.includes("晴")) {
+      advice += "☀️ 晴天，适合户外活动，注意防晒\n";
+    } else if (current.condition.includes("云")) {
+      advice += "☁️ 多云，天气适宜，适合各种活动\n";
+    }
+    
+    // 根据风速提供建议
+    if (current.windSpeed > 20) {
+      advice += "💨 风速较大，注意防风，避免高空作业\n";
+    }
+    
+    // 根据能见度提供建议
+    if (current.visibility < 5) {
+      advice += "🌫️ 能见度较低，驾驶时注意安全\n";
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: advice
+      }]
+    };
+  }
+);
+
+// 注册资源：当前天气数据
+server.resource(
+  "当前天气数据",
+  "weather://data/current",
+  {
+    description: "所有城市的当前天气数据",
+    mimeType: "application/json"
+  },
+  async () => {
+    const currentData: { [city: string]: WeatherCurrent } = {};
+    for (const [city, data] of Object.entries(weatherData)) {
+      currentData[city] = data.current;
+    }
+    
+    return {
+      contents: [{
+        uri: "weather://data/current",
+        mimeType: "application/json",
+        text: JSON.stringify(currentData, null, 2)
+      }]
+    };
+  }
+);
+
+// 注册资源：天气预报数据
+server.resource(
+  "天气预报数据",
+  "weather://data/forecast",
+  {
+    description: "所有城市的5天天气预报数据",
+    mimeType: "application/json"
+  },
+  async () => {
+    const forecastData: { [city: string]: WeatherForecast[] } = {};
+    for (const [city, data] of Object.entries(weatherData)) {
+      forecastData[city] = data.forecast;
+    }
+    
+    return {
+      contents: [{
+        uri: "weather://data/forecast",
+        mimeType: "application/json",
+        text: JSON.stringify(forecastData, null, 2)
+      }]
+    };
+  }
+);
+
+// 注册资源：城市列表
+server.resource(
+  "支持的城市列表",
+  "weather://data/cities",
+  {
+    description: "所有支持天气查询的城市",
+    mimeType: "application/json"
+  },
+  async () => {
+    return {
+      contents: [{
+        uri: "weather://data/cities",
+        mimeType: "application/json",
+        text: JSON.stringify({
+          cities: Object.keys(weatherData),
+          count: Object.keys(weatherData).length
+        }, null, 2)
+      }]
+    };
+  }
+);
+
+// 启动服务器
+const transport = new StdioServerTransport();
+await server.connect(transport);
+
+console.error("天气MCP服务器已启动，支持以下功能：");
+console.error("- 获取当前天气 (get_current_weather)");
+console.error("- 获取天气预报 (get_weather_forecast)");
+console.error("- 列出支持的城市 (list_supported_cities)");
+console.error("- 获取天气建议 (get_weather_advice)");
+console.error("- 访问天气数据资源 (weather://data/*)"); 

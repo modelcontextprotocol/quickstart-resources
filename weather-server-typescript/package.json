@@ -7,15 +7,23 @@
     "weather": "./build/index.js"
   },
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\""
+    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "test": "npx tsx test/test-weather-server.ts",
+    "example": "npx tsx examples/weather-client-example.ts",
+    "start": "node build/index.js"
   },
   "files": [
     "build"
   ],
-  "keywords": [],
+  "keywords": [
+    "mcp",
+    "weather",
+    "typescript",
+    "model-context-protocol"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "A Model Context Protocol (MCP) weather server providing current weather, forecasts, and weather advice for Chinese cities",
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2"
