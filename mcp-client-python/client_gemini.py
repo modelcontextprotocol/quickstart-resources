@@ -56,45 +56,48 @@ class MCPClientGemini:
         response = await self.session.list_tools()
         gemini_tools = self._tools_for_gemini(response.tools)
         # Prepare chat history (can be extended for multi-turn)
-        contents = types.Content(
-            role='user',
-            parts=[types.Part.from_text(text=query)]
-        )
+        contents = [
+            types.Content(
+                role="user", parts=[types.Part(text=query)]
+            )
+        ]
         config = types.GenerateContentConfig(
             tools=gemini_tools
         )
         # Use async client for async call
         result = await self.client.aio.models.generate_content(
             model=self.model,
-            contents=[contents],
+            contents=contents,
             config=config
         )
         final_text = []
         # Handle function calls if present
-        if hasattr(result, 'function_calls') and result.function_calls:
-            for call in result.function_calls:
-                tool_name = call.name
-                tool_args = call.function_call.args
-                try:
-                    tool_result = await self.session.call_tool(tool_name, tool_args)
-                    final_text.append(f"[Called tool {tool_name} with args {tool_args}]")
-                    # Send tool result back to Gemini as a function response
-                    function_response_part = types.Part.from_function_response(
-                        name=tool_name,
-                        response=tool_result.content
-                    )
-                    function_response_content = types.Content(
-                        role='tool', parts=[function_response_part]
-                    )
-                    # Continue the conversation with the function response
-                    result2 = await self.client.aio.models.generate_content(
-                        model=self.model,
-                        contents=[contents, call, function_response_content],
-                        config=types.GenerateContentConfig(tools=gemini_tools)
-                    )
-                    final_text.append(result2.text)
-                except Exception as e:
-                    final_text.append(f"[Error calling tool {tool_name}: {e}]")
+        function_call = result.candidates[0].content.parts[0].function_call
+        # if hasattr(result, 'function_calls') and result.function_calls:
+            # for call in result.function_calls:
+        if function_call:
+            tool_name = function_call.name
+            tool_args = function_call.args
+            try:
+                tool_result = await self.session.call_tool(tool_name, tool_args)
+                final_text.append(f"[Called tool {tool_name} with args {tool_args}]")
+                # Send tool result back to Gemini as a function response
+                function_response_part = types.Part.from_function_response(
+                    name=tool_name,
+                    response={"result": tool_result.content}
+                )
+                contents.append(response.candidates[0].content) # Append the content from the model's response.
+                contents.append(types.Content(role="user", parts=[function_response_part])) # Append the function response
+                
+                # Continue the conversation with the function response
+                final_response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config
+                )
+                final_text.append(final_response.text)
+            except Exception as e:
+                final_text.append(f"[Error calling tool {tool_name}: {e}]")
         else:
             final_text.append(result.text)
         return "\n".join(final_text)
