@@ -1,6 +1,12 @@
 from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
+import os
+from dotenv import load_dotenv
+
+# Load .env from project root (parent directory)
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+load_dotenv(env_path)
 
 # Initialize FastMCP server
 mcp = FastMCP("weather")
@@ -88,6 +94,42 @@ Forecast: {period['detailedForecast']}
         forecasts.append(forecast)
 
     return "\n---\n".join(forecasts)
+
+@mcp.tool()
+async def get_coordinates(city: str, state: str = "", country: str = "US", zip_code: str = "") -> str:
+    """Get latitude and longitude for a location using OpenWeather Geocoding API.
+
+    Args:
+        city: City name
+        state: State code (optional, for US)
+        country: Country code (default US)
+        zip_code: Zip/post code (optional)
+    """
+    api_key = os.getenv("OPENWEATHER_API_KEY")
+    if not api_key:
+        return "OpenWeather API key not set. Please set OPENWEATHER_API_KEY in environment."
+    async with httpx.AsyncClient() as client:
+        if zip_code:
+            url = f"http://api.openweathermap.org/geo/1.0/zip?zip={zip_code},{country}&appid={api_key}"
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                return f"Latitude: {data['lat']}, Longitude: {data['lon']}"
+            else:
+                return f"Error: Could not find coordinates for zip {zip_code}"
+        else:
+            q = city
+            if state:
+                q += f",{state}"
+            if country:
+                q += f",{country}"
+            url = f"http://api.openweathermap.org/geo/1.0/direct?q={q}&limit=1&appid={api_key}"
+            resp = await client.get(url)
+            if resp.status_code == 200 and resp.json():
+                data = resp.json()[0]
+                return f"Latitude: {data['lat']}, Longitude: {data['lon']}"
+            else:
+                return f"Error: Could not find coordinates for {q}"
 
 if __name__ == "__main__":
     # Initialize and run the server
