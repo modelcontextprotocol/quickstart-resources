@@ -28,12 +28,15 @@ class MCPClient:
         if not (is_python or is_js):
             raise ValueError("Server script must be a .py or .js file")
             
-        command = "python" if is_python else "node"
-        server_params = StdioServerParameters(
-            command=command,
-            args=[server_script_path],
-            env=None
-        )
+        import json
+
+        if server_script_path.endswith(".js"):
+            server_json = json.load(open(server_script_path))
+            args = server_json.get("args", [])
+            env = server_json.get("env", {})
+            server_params = StdioServerParameters(command="npx", args=args, env=env)
+        else:
+            server_params = StdioServerParameters(command="python", args=[server_script_path])
         
         stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
         self.stdio, self.write = stdio_transport
@@ -64,8 +67,8 @@ class MCPClient:
 
         # Initial Claude API call
         response = self.anthropic.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
+            model="claude-sonnet-4-0",
+            max_tokens=10000,
             messages=messages,
             tools=available_tools
         )
@@ -97,8 +100,8 @@ class MCPClient:
 
                 # Get next response from Claude
                 response = self.anthropic.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1000,
+                    model="claude-sonnet-4-0",
+                    max_tokens=10000,
                     messages=messages,
                 )
 
