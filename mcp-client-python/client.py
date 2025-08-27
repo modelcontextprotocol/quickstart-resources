@@ -17,26 +17,16 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.anthropic = Anthropic()
 
-    async def connect_to_server(self, server_script_path: str):
-        """Connect to an MCP server
-        
-        Args:
-            server_script_path: Path to the server script (.py or .js)
-        """
-        is_python = server_script_path.endswith('.py')
-        is_js = server_script_path.endswith('.js')
-        if not (is_python or is_js):
-            raise ValueError("Server script must be a .py or .js file")
-            
-        import json
+    async def connect(self, server_config: dict):
+        """Connect to an MCP server from a configuration dictionary."""
+        command = server_config.get("command")
+        if not command:
+            raise ValueError("Server configuration must include a 'command'")
 
-        if server_script_path.endswith(".js"):
-            server_json = json.load(open(server_script_path))
-            args = server_json.get("args", [])
-            env = server_json.get("env", {})
-            server_params = StdioServerParameters(command="npx", args=args, env=env)
-        else:
-            server_params = StdioServerParameters(command="python", args=[server_script_path])
+        args = server_config.get("args", [])
+        env = server_config.get("env", {})
+
+        server_params = StdioServerParameters(command=command, args=args, env=env)
         
         stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
         self.stdio, self.write = stdio_transport
@@ -132,13 +122,32 @@ class MCPClient:
         await self.exit_stack.aclose()
 
 async def main():
-    if len(sys.argv) < 2:
-        print("Usage: python client.py <path_to_server_script>")
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="MCP Client")
+    parser.add_argument("--config", required=True, help="Path to the JSON configuration file")
+    parser.add_argument("--server", required=True, help="Name of the server to connect to")
+    args = parser.parse_args()
+
+    try:
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Configuration file not found at {args.config}")
         sys.exit(1)
-        
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON from {args.config}")
+        sys.exit(1)
+
+    server_config = config.get("mcpServers", {}).get(args.server)
+    if not server_config:
+        print(f"Error: Server '{args.server}' not found in the configuration file.")
+        sys.exit(1)
+
     client = MCPClient()
     try:
-        await client.connect_to_server(sys.argv[1])
+        await client.connect(server_config)
         await client.chat_loop()
     finally:
         await client.cleanup()
