@@ -63,12 +63,12 @@ class MCPClient {
         return {
           name: tool.name,
           description: tool.description,
-          input_schema: tool.inputSchema,
+          inputSchema: tool.inputSchema,
         };
       });
       console.log(
         "Connected to server with tools:",
-        this.tools.map(({ name }) => name),
+        this.tools.map(({ name }) => name)
       );
     } catch (e) {
       console.log("Failed to connect to MCP server: ", e);
@@ -116,7 +116,7 @@ class MCPClient {
         });
         toolResults.push(result);
         finalText.push(
-          `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
+          `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`
         );
 
         // Continue conversation with tool results
@@ -133,7 +133,7 @@ class MCPClient {
         });
 
         finalText.push(
-          response.content[0].type === "text" ? response.content[0].text : "",
+          response.content[0].type === "text" ? response.content[0].text : ""
         );
       }
     }
