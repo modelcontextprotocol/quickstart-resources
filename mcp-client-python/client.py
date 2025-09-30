@@ -73,7 +73,7 @@ class MCPClient:
 
         # Initial Claude API call
         response = self.anthropic.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-0",
             max_tokens=1000,
             messages=messages,
             tools=available_tools,
@@ -100,7 +100,7 @@ class MCPClient:
 
                 # Get next response from Claude
                 response = self.anthropic.messages.create(
-                    model="claude-3-5-sonnet-20241022",
+                    model="claude-sonnet-4-0",
                     max_tokens=1000,
                     messages=messages,
                 )

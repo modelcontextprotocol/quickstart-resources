@@ -92,7 +92,7 @@ class MCPClient {
 
     // Initial Claude API call
     const response = await this.anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-0",
       max_tokens: 1000,
       messages,
       tools: this.tools,
@@ -100,7 +100,6 @@ class MCPClient {
 
     // Process response and handle tool calls
     const finalText = [];
-    const toolResults = [];
 
     for (const content of response.content) {
       if (content.type === "text") {
@@ -114,7 +113,6 @@ class MCPClient {
           name: toolName,
           arguments: toolArgs,
         });
-        toolResults.push(result);
         finalText.push(
           `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
         );
@@ -127,7 +125,7 @@ class MCPClient {
 
         // Get next response from Claude
         const response = await this.anthropic.messages.create({
-          model: "claude-3-5-sonnet-20241022",
+          model: "claude-sonnet-4-0",
           max_tokens: 1000,
           messages,
         });
