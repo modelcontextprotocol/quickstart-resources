@@ -1,5 +1,4 @@
 import asyncio
-import os
 from typing import Optional
 from contextlib import AsyncExitStack
 
@@ -8,6 +7,7 @@ from mcp.client.stdio import stdio_client
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from pathlib import Path
 
 load_dotenv()  # load environment variables from .env
 
@@ -31,10 +31,10 @@ class MCPClient:
             raise ValueError("Server script must be a .py or .js file")
 
         if is_python:
-            directory, file_name = os.path.split(server_script_path)
+            path = Path(server_script_path).resolve()
             server_params = StdioServerParameters(
                 command="uv",
-                args=["--directory", directory, "run", file_name],
+                args=["--directory", path.parent, "run", path.name],
                 env=None,
             )
         else:
