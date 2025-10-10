@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 
 load_dotenv()  # load environment variables from .env
 
+# Claude model constant
+ANTHROPIC_MODEL = "claude-sonnet-4-5"
+
 class MCPClient:
     def __init__(self):
         # Initialize session and client objects
@@ -64,7 +67,7 @@ class MCPClient:
 
         # Initial Claude API call
         response = self.anthropic.messages.create(
-            model="claude-sonnet-4-5",
+            model=ANTHROPIC_MODEL,
             max_tokens=1000,
             messages=messages,
             tools=available_tools
@@ -97,7 +100,7 @@ class MCPClient:
 
                 # Get next response from Claude
                 response = self.anthropic.messages.create(
-                    model="claude-sonnet-4-5",
+                    model=ANTHROPIC_MODEL,
                     max_tokens=1000,
                     messages=messages,
                 )
