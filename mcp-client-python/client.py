@@ -71,7 +71,6 @@ class MCPClient:
         )
 
         # Process response and handle tool calls
-        tool_results = []
         final_text = []
 
         for content in response.content:
@@ -83,7 +82,6 @@ class MCPClient:
                 
                 # Execute tool call
                 result = await self.session.call_tool(tool_name, tool_args)
-                tool_results.append({"call": tool_name, "result": result})
                 final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
 
                 # Continue conversation with tool results
