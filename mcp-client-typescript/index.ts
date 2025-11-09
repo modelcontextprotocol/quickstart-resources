@@ -12,6 +12,7 @@ import dotenv from "dotenv";
 
 dotenv.config(); // load environment variables from .env
 
+const ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY is not set");
@@ -68,7 +69,7 @@ class MCPClient {
       });
       console.log(
         "Connected to server with tools:",
-        this.tools.map(({ name }) => name),
+        this.tools.map(({ name }) => name)
       );
     } catch (e) {
       console.log("Failed to connect to MCP server: ", e);
@@ -92,7 +93,7 @@ class MCPClient {
 
     // Initial Claude API call
     const response = await this.anthropic.messages.create({
-      model: "claude-sonnet-4-5",
+      model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       messages,
       tools: this.tools,
@@ -114,7 +115,7 @@ class MCPClient {
           arguments: toolArgs,
         });
         finalText.push(
-          `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
+          `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`
         );
 
         // Continue conversation with tool results
@@ -125,13 +126,13 @@ class MCPClient {
 
         // Get next response from Claude
         const response = await this.anthropic.messages.create({
-          model: "claude-sonnet-4-5",
+          model: ANTHROPIC_MODEL,
           max_tokens: 1000,
           messages,
         });
 
         finalText.push(
-          response.content[0].type === "text" ? response.content[0].text : "",
+          response.content[0].type === "text" ? response.content[0].text : ""
         );
       }
     }
