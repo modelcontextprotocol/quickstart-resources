@@ -19,6 +19,3 @@ wheels/
 # Rust-generated files
 debug
 target
-
-# JetBrains IDEs
-.idea
