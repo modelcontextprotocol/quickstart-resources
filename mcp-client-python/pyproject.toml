@@ -5,7 +5,7 @@ description = "A simple MCP client"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=0.40.0",
-    "mcp>=1.1.1",
-    "python-dotenv>=1.0.1",
+    "anthropic>=0.72.0",
+    "mcp>=1.21.0",
+    "python-dotenv>=1.2.1",
 ]
