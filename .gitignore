@@ -12,3 +12,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment variables file
+.env
+
+# Rust-generated files
+debug
+target
