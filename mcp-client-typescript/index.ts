@@ -56,7 +56,7 @@ class MCPClient {
         command,
         args: [serverScriptPath],
       });
-      this.mcp.connect(this.transport);
+      await this.mcp.connect(this.transport);
 
       // List available tools
       const toolsResult = await this.mcp.listTools();
@@ -183,6 +183,10 @@ async function main() {
   try {
     await mcpClient.connectToServer(process.argv[2]);
     await mcpClient.chatLoop();
+  } catch (e) {
+    console.error("Error:", e);
+    await mcpClient.cleanup();
+    process.exit(1);
   } finally {
     await mcpClient.cleanup();
     process.exit(0);
