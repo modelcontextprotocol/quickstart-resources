@@ -13,13 +13,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
     "@modelcontextprotocol/sdk": "^1.25.2",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.6.1"
   },
   "devDependencies": {
-    "@types/node": "^22.13.4",
-    "typescript": "^5.7.3"
+    "@types/node": "^22.19.3",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=16.0.0"
-  }
+  },
+  "description": "See the [Building MCP clients](https://modelcontextprotocol.io/tutorials/building-a-client) tutorial for more information."
 }

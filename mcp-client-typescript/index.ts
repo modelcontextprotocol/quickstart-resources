@@ -7,6 +7,8 @@ import {
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import readline from "readline/promises";
+import { access } from "fs/promises";
+import { constants } from "fs";
 
 import dotenv from "dotenv";
 
@@ -32,13 +34,23 @@ class MCPClient {
     this.mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
   }
 
-  async connectToServer(serverScriptPath: string) {
+  async connectToServer(serverScriptPath: string, timeoutMs: number = 30000) {
     /**
      * Connect to an MCP server
      *
      * @param serverScriptPath - Path to the server script (.py or .js)
+     * @param timeoutMs - Connection timeout in milliseconds (default: 30000)
      */
     try {
+      // Check if the server script file exists
+      try {
+        await access(serverScriptPath, constants.F_OK | constants.R_OK);
+      } catch {
+        throw new Error(
+          `Server script not found or not readable: ${serverScriptPath}`
+        );
+      }
+
       // Determine script type and appropriate command
       const isJs = serverScriptPath.endsWith(".js");
       const isPy = serverScriptPath.endsWith(".py");
@@ -51,22 +63,42 @@ class MCPClient {
           : "python3"
         : process.execPath;
 
-      // Initialize transport and connect to server
+      // Initialize transport and connect to server with timeout
       this.transport = new StdioClientTransport({
         command,
         args: [serverScriptPath],
       });
-      await this.mcp.connect(this.transport);
 
-      // List available tools
-      const toolsResult = await this.mcp.listTools();
-      this.tools = toolsResult.tools.map((tool) => {
-        return {
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.inputSchema,
-        };
-      });
+      // Wrap connection and tool listing with timeout
+      const connectionPromise = (async () => {
+        await this.mcp.connect(this.transport!);
+
+        // List available tools
+        const toolsResult = await this.mcp.listTools();
+        this.tools = toolsResult.tools.map((tool) => {
+          return {
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.inputSchema,
+          };
+        });
+      })();
+
+      await Promise.race([
+        connectionPromise,
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Connection timeout: Server did not respond within ${timeoutMs}ms`
+                )
+              ),
+            timeoutMs
+          )
+        ),
+      ]);
+
       console.log(
         "Connected to server with tools:",
         this.tools.map(({ name }) => name),
@@ -80,6 +112,7 @@ class MCPClient {
   async processQuery(query: string) {
     /**
      * Process a query using Claude and available tools
+     * Implements a proper agentic loop that handles multiple tool calls
      *
      * @param query - The user's input query
      * @returns Processed response as a string
@@ -91,53 +124,81 @@ class MCPClient {
       },
     ];
 
-    // Initial Claude API call
-    const response = await this.anthropic.messages.create({
+    let response = await this.anthropic.messages.create({
       model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       messages,
       tools: this.tools,
     });
 
-    // Process response and handle tool calls
-    const finalText = [];
+    // Agentic loop: continue until Claude stops requesting tools
+    while (response.stop_reason === "tool_use") {
+      // Add assistant's response to conversation history
+      messages.push({
+        role: "assistant",
+        content: response.content,
+      });
 
-    for (const content of response.content) {
-      if (content.type === "text") {
-        finalText.push(content.text);
-      } else if (content.type === "tool_use") {
-        // Execute tool call
-        const toolName = content.name;
-        const toolArgs = content.input as { [x: string]: unknown } | undefined;
+      // Collect all tool uses from this turn
+      const toolUses = response.content.filter(
+        (block) => block.type === "tool_use"
+      );
 
-        const result = await this.mcp.callTool({
-          name: toolName,
-          arguments: toolArgs,
-        });
-        finalText.push(
-          `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
-        );
+      // Execute all tool calls and collect results
+      const toolResults = await Promise.all(
+        toolUses.map(async (toolUse) => {
+          if (toolUse.type !== "tool_use") return null;
 
-        // Continue conversation with tool results
-        messages.push({
-          role: "user",
-          content: result.content as string,
-        });
+          try {
+            console.log(
+              `[Calling tool: ${toolUse.name} with args: ${JSON.stringify(toolUse.input)}]`
+            );
 
-        // Get next response from Claude
-        const response = await this.anthropic.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 1000,
-          messages,
-        });
+            const result = await this.mcp.callTool({
+              name: toolUse.name,
+              arguments: toolUse.input as { [x: string]: unknown } | undefined,
+            });
 
-        finalText.push(
-          response.content[0].type === "text" ? response.content[0].text : "",
-        );
-      }
+            // Format tool result according to Anthropic's API
+            return {
+              type: "tool_result" as const,
+              tool_use_id: toolUse.id,
+              content: JSON.stringify(result.content),
+            };
+          } catch (error) {
+            console.error(`[Tool ${toolUse.name} failed: ${error}]`);
+            // Return error as tool result
+            return {
+              type: "tool_result" as const,
+              tool_use_id: toolUse.id,
+              content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+              is_error: true,
+            };
+          }
+        })
+      );
+
+      // Filter out any null results and add tool results to conversation
+      const validToolResults = toolResults.filter((r) => r !== null);
+      messages.push({
+        role: "user",
+        content: validToolResults,
+      });
+
+      // Get Claude's next response
+      response = await this.anthropic.messages.create({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1000,
+        messages,
+        tools: this.tools,
+      });
     }
 
-    return finalText.join("\n");
+    // Extract final text response
+    const textBlocks = response.content.filter(
+      (block) => block.type === "text"
+    );
+    return textBlocks.map((block) => block.text).join("\n");
   }
 
   async chatLoop() {
