@@ -12,6 +12,7 @@ import dotenv from "dotenv";
 
 dotenv.config(); // load environment variables from .env
 
+const ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!ANTHROPIC_API_KEY) {
   throw new Error("ANTHROPIC_API_KEY is not set");
@@ -55,7 +56,7 @@ class MCPClient {
         command,
         args: [serverScriptPath],
       });
-      this.mcp.connect(this.transport);
+      await this.mcp.connect(this.transport);
 
       // List available tools
       const toolsResult = await this.mcp.listTools();
@@ -92,7 +93,7 @@ class MCPClient {
 
     // Initial Claude API call
     const response = await this.anthropic.messages.create({
-      model: "claude-sonnet-4-5",
+      model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       messages,
       tools: this.tools,
@@ -125,7 +126,7 @@ class MCPClient {
 
         // Get next response from Claude
         const response = await this.anthropic.messages.create({
-          model: "claude-sonnet-4-5",
+          model: ANTHROPIC_MODEL,
           max_tokens: 1000,
           messages,
         });
@@ -182,6 +183,10 @@ async function main() {
   try {
     await mcpClient.connectToServer(process.argv[2]);
     await mcpClient.chatLoop();
+  } catch (e) {
+    console.error("Error:", e);
+    await mcpClient.cleanup();
+    process.exit(1);
   } finally {
     await mcpClient.cleanup();
     process.exit(0);
