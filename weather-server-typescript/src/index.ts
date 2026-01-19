@@ -79,11 +79,14 @@ const server = new McpServer({
 });
 
 // Register weather tools
-server.tool(
+server.registerTool(
   "get-alerts",
-  "Get weather alerts for a state",
   {
-    state: z.string().length(2).describe("Two-letter state code (e.g. CA, NY)"),
+    title: "Get Weather Alerts",
+    description: "Get weather alerts for a state",
+    inputSchema: {
+      state: z.string().length(2).describe("Two-letter state code (e.g. CA, NY)"),
+    },
   },
   async ({ state }) => {
     const stateCode = state.toUpperCase();
@@ -127,16 +130,19 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   "get-forecast",
-  "Get weather forecast for a location",
   {
-    latitude: z.number().min(-90).max(90).describe("Latitude of the location"),
-    longitude: z
-      .number()
-      .min(-180)
-      .max(180)
-      .describe("Longitude of the location"),
+    title: "Get Weather Forecast",
+    description: "Get weather forecast for a location",
+    inputSchema: {
+      latitude: z.number().min(-90).max(90).describe("Latitude of the location"),
+      longitude: z
+        .number()
+        .min(-180)
+        .max(180)
+        .describe("Longitude of the location"),
+    },
   },
   async ({ latitude, longitude }) => {
     // Get grid point data
