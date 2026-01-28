@@ -73,7 +73,7 @@ func makeNWSRequest[T any](ctx context.Context, url string) (*T, error) {
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("Accept", "application/geo+json")
 
-	client := &http.Client{}
+	client := http.DefaultClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request to %s: %w", url, err)
