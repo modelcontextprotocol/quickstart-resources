@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "bin": {
-    "weather": "./build/index.js"
+    "weather": "build/index.js"
   },
   "scripts": {
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\""
@@ -15,12 +15,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "See the [Quickstart](https://modelcontextprotocol.io/quickstart) tutorial for more information.",
   "devDependencies": {
-    "@types/node": "^22.19.2",
+    "@types/node": "^22.19.3",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.3"
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "zod": "^3.25.76"
   }
 }
