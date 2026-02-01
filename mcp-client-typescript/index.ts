@@ -13,23 +13,21 @@ import dotenv from "dotenv";
 dotenv.config(); // load environment variables from .env
 
 const ANTHROPIC_MODEL = "claude-sonnet-4-5";
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-if (!ANTHROPIC_API_KEY) {
-  throw new Error("ANTHROPIC_API_KEY is not set");
-}
 
 class MCPClient {
   private mcp: Client;
-  private anthropic: Anthropic;
+  private _anthropic: Anthropic | null = null;
   private transport: StdioClientTransport | null = null;
   private tools: Tool[] = [];
 
   constructor() {
-    // Initialize Anthropic client and MCP client
-    this.anthropic = new Anthropic({
-      apiKey: ANTHROPIC_API_KEY,
-    });
+    // Initialize MCP client
     this.mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
+  }
+
+  private get anthropic(): Anthropic {
+    // Lazy-initialize Anthropic client when needed
+    return this._anthropic ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
 
   async connectToServer(serverScriptPath: string) {
@@ -182,6 +180,17 @@ async function main() {
   const mcpClient = new MCPClient();
   try {
     await mcpClient.connectToServer(process.argv[2]);
+
+    // Check if we have a valid API key to continue
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.log(
+        "\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:"
+      );
+      console.log("  export ANTHROPIC_API_KEY=your-api-key-here");
+      return;
+    }
+
     await mcpClient.chatLoop();
   } catch (e) {
     console.error("Error:", e);

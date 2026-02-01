@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import AsyncExitStack
 from pathlib import Path
 
@@ -18,7 +19,14 @@ class MCPClient:
         # Initialize session and client objects
         self.session: ClientSession | None = None
         self.exit_stack = AsyncExitStack()
-        self.anthropic = Anthropic()
+        self._anthropic: Anthropic | None = None
+
+    @property
+    def anthropic(self) -> Anthropic:
+        """Lazy-initialize Anthropic client when needed"""
+        if self._anthropic is None:
+            self._anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        return self._anthropic
 
     async def connect_to_server(self, server_script_path: str):
         """Connect to an MCP server
@@ -128,6 +136,14 @@ async def main():
     client = MCPClient()
     try:
         await client.connect_to_server(sys.argv[1])
+
+        # Check if we have a valid API key to continue
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            print("\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:")
+            print("  export ANTHROPIC_API_KEY=your-api-key-here")
+            return
+
         await client.chat_loop()
     finally:
         await client.cleanup()
