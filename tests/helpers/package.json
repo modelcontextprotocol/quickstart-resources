@@ -8,7 +8,7 @@
     "clean": "rm -rf build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.22.0"
+    "@modelcontextprotocol/sdk": "^1.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
