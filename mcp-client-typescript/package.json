@@ -12,7 +12,7 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^16.4.7"
   },
   "devDependencies": {
