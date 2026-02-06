@@ -1,0 +1,23 @@
+name: MCP Safety Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: TheodorNEngoy/mcp-safety-scanner@v0
+        with:
+          path: .
+          fail-on: high
+          format: github
+
