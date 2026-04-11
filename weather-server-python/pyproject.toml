@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.28.1",
-    "mcp[cli]>=1.21.0",
+    "mcp[cli]>=1.26.0",
 ]
 
 [build-system]
@@ -15,7 +15,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14.8",
+    "ruff>=0.15.8",
 ]
 
 [project.scripts]
