@@ -28,6 +28,7 @@ class MCPClient
 
     @transport = MCP::Client::Stdio.new(command: command, args: [server_script_path])
     @mcp_client = MCP::Client.new(transport: @transport)
+    @mcp_client.connect
 
     tool_names = @mcp_client.tools.map(&:name)
     puts "\nConnected to server with tools: #{tool_names}"
