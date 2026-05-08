@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rmcp = { version = "0.3", features = ["server", "macros", "transport-io"] }
+rmcp = { version = "1.4", features = ["server", "macros", "transport-io"] }
 tokio = { version = "1.46", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
