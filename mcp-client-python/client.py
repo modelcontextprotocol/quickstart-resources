@@ -12,6 +12,7 @@ load_dotenv()  # load environment variables from .env
 
 # Claude model constant
 ANTHROPIC_MODEL = "claude-sonnet-4-5"
+MAX_TOOL_TURNS = 10
 
 
 class MCPClient:
@@ -64,45 +65,52 @@ class MCPClient:
         """Process a query using Claude and available tools"""
         messages = [{"role": "user", "content": query}]
 
-        response = await self.session.list_tools()
+        tools_response = await self.session.list_tools()
         available_tools = [
             {"name": tool.name, "description": tool.description, "input_schema": tool.inputSchema}
-            for tool in response.tools
+            for tool in tools_response.tools
         ]
 
-        # Initial Claude API call
+        final_text = []
+
         response = self.anthropic.messages.create(
             model=ANTHROPIC_MODEL, max_tokens=1000, messages=messages, tools=available_tools
         )
 
-        # Process response and handle tool calls
-        final_text = []
+        for _ in range(MAX_TOOL_TURNS):
+            tool_uses = []
+            for content in response.content:
+                if content.type == "text":
+                    final_text.append(content.text)
+                elif content.type == "tool_use":
+                    tool_uses.append(content)
 
-        for content in response.content:
-            if content.type == "text":
-                final_text.append(content.text)
-            elif content.type == "tool_use":
-                tool_name = content.name
-                tool_args = content.input
+            if not tool_uses:
+                return "\n".join(final_text)
 
-                # Execute tool call
-                result = await self.session.call_tool(tool_name, tool_args)
-                final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
-
-                # Continue conversation with tool results
-                if hasattr(content, "text") and content.text:
-                    messages.append({"role": "assistant", "content": content.text})
-                messages.append({"role": "user", "content": result.content})
-
-                # Get next response from Claude
-                response = self.anthropic.messages.create(
-                    model=ANTHROPIC_MODEL,
-                    max_tokens=1000,
-                    messages=messages,
+            tool_results = []
+            for tool_use in tool_uses:
+                result = await self.session.call_tool(tool_use.name, tool_use.input)
+                final_text.append(f"[Calling tool {tool_use.name} with args {tool_use.input}]")
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_use.id,
+                        "content": result.content,
+                    }
                 )
 
-                final_text.append(response.content[0].text)
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": tool_results})
 
+            response = self.anthropic.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=1000,
+                messages=messages,
+                tools=available_tools,
+            )
+
+        final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
         return "\n".join(final_text)
 
     async def chat_loop(self):
