@@ -1,3 +1,3 @@
 # A Simple MCP weather Server written in TypeScript
 
-See the [Quickstart](https://modelcontextprotocol.io/quickstart) tutorial for more information.
+See the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build-server) tutorial for more information.
