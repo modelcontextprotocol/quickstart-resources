@@ -1,3 +1,3 @@
 # An LLM-Powered Chatbot MCP Client written in Python
 
-See the [Building MCP clients](https://modelcontextprotocol.io/tutorials/building-a-client) tutorial for more information.
+See the [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) tutorial for more information.

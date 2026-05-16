@@ -1,3 +1,3 @@
-# An LLM-Powered Chatbot MCP Client written in Go
+# An LLM-Powered Chatbot MCP Client written in Rust
 
 See the [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) tutorial for more information.
