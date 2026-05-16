@@ -121,13 +121,15 @@ class MCPClient:
         while True:
             try:
                 query = input("\nQuery: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
 
-                if query.lower() == "quit":
-                    break
+            if query.lower() == "quit":
+                break
 
+            try:
                 response = await self.process_query(query)
                 print("\n" + response)
-
             except Exception as e:
                 print(f"\nError: {str(e)}")
 
