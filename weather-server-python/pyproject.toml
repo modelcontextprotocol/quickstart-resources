@@ -4,9 +4,10 @@ version = "0.1.0"
 description = "A simple MCP weather server"
 readme = "README.md"
 requires-python = ">=3.10"
+# httpx2 is a hard dependency of mcp, so it is not listed here — installing
+# `mcp` already brings it in, and adding httpx would install a second HTTP stack.
 dependencies = [
-    "httpx>=0.28.1",
-    "mcp[cli]>=1.26.0",
+    "mcp[cli]>=2.0.0b2",
 ]
 
 [build-system]
@@ -17,6 +18,11 @@ build-backend = "hatchling.build"
 dev = [
     "ruff>=0.15.8",
 ]
+
+# The 2026-07-28 protocol revision only ships in the mcp 2.0 prereleases, so
+# allow them without every command needing --prerelease=allow.
+[tool.uv]
+prerelease = "allow"
 
 [project.scripts]
 weather = "weather:main"
