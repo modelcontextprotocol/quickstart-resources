@@ -3,19 +3,24 @@ use genai::Client;
 use genai::chat::{
     ChatMessage, ChatRequest, ChatResponse, ContentPart, Tool as GenaiTool, ToolResponse,
 };
-use rmcp::model::{CallToolRequestParam, Tool as McpTool};
+use jsonschema::Validator;
+use rmcp::model::{CallToolRequestParams, CallToolResult, Tool as McpTool};
 use rmcp::service::{RoleClient, RunningService, ServiceExt};
 use rmcp::transport::TokioChildProcess;
 use serde_json::Value;
+use std::collections::HashMap;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-const MODEL_ANTHROPIC: &str = "claude-sonnet-4-20250514";
+const MODEL_ANTHROPIC: &str = "claude-sonnet-5";
 
 struct MCPClient {
     anthropic: Client,
     session: Option<RunningService<RoleClient, ()>>,
     tools: Vec<GenaiTool>,
+    /// Compiled `outputSchema` per tool name. rmcp does not validate results,
+    /// so this client does it with the `jsonschema` crate.
+    output_schemas: HashMap<String, Validator>,
 }
 
 impl MCPClient {
@@ -24,7 +29,26 @@ impl MCPClient {
             anthropic: Client::default(),
             session: None,
             tools: Vec::new(),
+            output_schemas: HashMap::new(),
         })
+    }
+
+    /// Check a result against its tool's declared `outputSchema`. Error results
+    /// are exempt: they carry a message, not data.
+    fn validate_tool_output(&self, name: &str, result: &CallToolResult) -> Result<()> {
+        let Some(validator) = self.output_schemas.get(name) else {
+            return Ok(());
+        };
+        if result.is_error.unwrap_or(false) {
+            return Ok(());
+        }
+        let Some(structured) = &result.structured_content else {
+            bail!("Tool {name} declares an output schema but returned no structured content");
+        };
+        if let Err(error) = validator.validate(structured) {
+            bail!("Structured content from tool {name} does not match its output schema: {error}");
+        }
+        Ok(())
     }
 
     async fn connect_to_server(&mut self, server_args: &[String]) -> Result<()> {
@@ -51,6 +75,18 @@ impl MCPClient {
             .collect();
 
         println!("Connected to server with tools: {tool_names:?}");
+
+        // An outputSchema root may be any JSON Schema, not just an object.
+        for tool in &rmcp_tools {
+            let Some(schema) = &tool.output_schema else {
+                continue;
+            };
+            let schema = Value::Object(schema.as_ref().clone());
+            let validator = Validator::new(&schema).with_context(|| {
+                format!("Failed to compile output schema of tool {}", tool.name)
+            })?;
+            self.output_schemas.insert(tool.name.to_string(), validator);
+        }
 
         self.tools = convert_tools(&rmcp_tools);
         self.session = Some(session);
@@ -93,16 +129,33 @@ impl MCPClient {
                 ));
 
                 // Query the MCP server
+                let mut params = CallToolRequestParams::new(tool_call.fn_name.clone());
+                if let Some(arguments) = tool_call.fn_arguments.as_object().cloned() {
+                    params = params.with_arguments(arguments);
+                }
                 let tool_result = session
-                    .call_tool(CallToolRequestParam {
-                        name: tool_call.fn_name.clone().into(),
-                        arguments: tool_call.fn_arguments.as_object().cloned(),
-                    })
+                    .call_tool(params)
                     .await
                     .with_context(|| format!("Tool call {} failed", tool_call.fn_name))?;
 
-                let payload = serde_json::to_string(&tool_result)
-                    .context("Failed to serialize tool result")?;
+                self.validate_tool_output(&tool_call.fn_name, &tool_result)?;
+
+                // structured_content is data the application can use directly.
+                if let Some(Value::Array(items)) = &tool_result.structured_content {
+                    final_text.push(format!(
+                        "[{} returned {} items]",
+                        tool_call.fn_name,
+                        items.len()
+                    ));
+                }
+
+                // content is a list of block types; forward only the text ones.
+                let payload = tool_result
+                    .content
+                    .iter()
+                    .filter_map(|block| block.as_text().map(|text| text.text.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
 
                 tool_results.push(ContentPart::ToolResponse(ToolResponse::new(
                     tool_call.call_id.clone(),
@@ -179,7 +232,8 @@ impl MCPClient {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv().context("Failed to load env file")?;
+    // .env is optional; the key may come from the environment instead.
+    let _ = dotenvy::dotenv();
 
     let mut args = std::env::args();
     let _ = args.next();
@@ -194,6 +248,17 @@ async fn main() -> Result<()> {
 
     let result = async {
         client.connect_to_server(&server_args).await?;
+
+        // Connecting and listing tools needs no credentials; querying them
+        // does. Matching the Python and TypeScript clients, report and exit
+        // rather than failing, so the connection itself can be exercised
+        // without a key.
+        if std::env::var("ANTHROPIC_API_KEY").is_err() {
+            println!("\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:");
+            println!("  export ANTHROPIC_API_KEY=your-api-key-here");
+            return Ok(());
+        }
+
         client.chat_loop().await
     }
     .await;

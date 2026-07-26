@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.100"
 genai = "0.4.2"
-rmcp = { version = "0.8.0", features = ["server", "client", "transport-io", "transport-child-process"] }
+jsonschema = "0.35"
+rmcp = { version = "3.0.0-beta.2", features = ["server", "client", "transport-io", "transport-child-process"] }
 tokio = { version = "1.47.1", features = ['full']}
 tracing = "0.1.41"
 tracing-subscriber = {version = "0.3", features = ["env-filter"]}
