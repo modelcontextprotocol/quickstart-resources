@@ -12,30 +12,28 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/joho/godotenv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var model anthropic.Model = anthropic.ModelClaudeSonnet4_5_20250929
+// A string literal rather than an anthropic.Model constant: the pinned SDK
+// version predates this model and has no constant for it.
+var model anthropic.Model = "claude-sonnet-5"
 
 type MCPClient struct {
 	anthropic *anthropic.Client
 	session   *mcp.ClientSession
 	tools     []anthropic.ToolUnionParam
+	// Compiled outputSchema per tool name, for validating results.
+	outputSchemas map[string]*jsonschema.Resolved
 }
 
 func NewMCPClient() (*MCPClient, error) {
-	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		return nil, fmt.Errorf("failed to load .env file: %w", err)
-	}
+	// .env is optional; the key may come from the environment instead.
+	_ = godotenv.Load()
 
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
-	}
-
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+	client := anthropic.NewClient(option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")))
 
 	return &MCPClient{
 		anthropic: &client,
@@ -80,6 +78,7 @@ func (c *MCPClient) ConnectToServer(ctx context.Context, serverArgs []string) er
 	var toolNames []string
 
 	// Convert MCP tools to Anthropic tool format
+	c.outputSchemas = make(map[string]*jsonschema.Resolved)
 	for _, tool := range toolsResult.Tools {
 		toolNames = append(toolNames, tool.Name)
 		anthropicTool, err := mcpToolToAnthropicTool(tool)
@@ -87,6 +86,14 @@ func (c *MCPClient) ConnectToServer(ctx context.Context, serverArgs []string) er
 			return fmt.Errorf("failed to convert mcp tool to anthropic tool: %w", err)
 		}
 		c.tools = append(c.tools, anthropicTool)
+
+		resolved, err := resolveOutputSchema(tool)
+		if err != nil {
+			return fmt.Errorf("failed to compile output schema of tool %s: %w", tool.Name, err)
+		}
+		if resolved != nil {
+			c.outputSchemas[tool.Name] = resolved
+		}
 	}
 
 	fmt.Printf("Connected to server with tools: %v\n", toolNames)
@@ -114,6 +121,40 @@ func mcpToolToAnthropicTool(tool *mcp.Tool) (anthropic.ToolUnionParam, error) {
 	return anthropic.ToolUnionParam{
 		OfTool: &toolParam,
 	}, nil
+}
+
+// resolveOutputSchema compiles a tool's declared outputSchema, or returns
+// (nil, nil) when it declares none. OutputSchema is `any` because the root may
+// be any JSON Schema, so round-trip through JSON to accept every form.
+func resolveOutputSchema(tool *mcp.Tool) (*jsonschema.Resolved, error) {
+	if tool.OutputSchema == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(tool.OutputSchema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal output schema: %w", err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal output schema: %w", err)
+	}
+	return schema.Resolve(nil)
+}
+
+// validateToolOutput checks a result against its tool's declared outputSchema.
+// Error results are exempt: they carry a message, not data.
+func (c *MCPClient) validateToolOutput(name string, result *mcp.CallToolResult) error {
+	resolved, ok := c.outputSchemas[name]
+	if !ok || result.IsError {
+		return nil
+	}
+	if result.StructuredContent == nil {
+		return fmt.Errorf("tool %s declares an output schema but returned no structured content", name)
+	}
+	if err := resolved.Validate(result.StructuredContent); err != nil {
+		return fmt.Errorf("structured content from tool %s does not match its output schema: %w", name, err)
+	}
+	return nil
 }
 
 func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, error) {
@@ -169,16 +210,27 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 			return "", fmt.Errorf("tool call %s failed: %w", toolUseBlock.Name, err)
 		}
 
-		// Serialize tool result
-		resultJSON, err := json.Marshal(mcpToolResult)
-		if err != nil {
-			return "", fmt.Errorf("failed to serialize tool result: %w", err)
+		if err := c.validateToolOutput(toolUseBlock.Name, mcpToolResult); err != nil {
+			return "", err
+		}
+
+		// StructuredContent is data the application can use directly.
+		if items, ok := mcpToolResult.StructuredContent.([]any); ok {
+			finalText = append(finalText, fmt.Sprintf("[%s returned %d items]", toolUseBlock.Name, len(items)))
+		}
+
+		// Content is a list of block types; forward only the text ones.
+		var texts []string
+		for _, block := range mcpToolResult.Content {
+			if text, ok := block.(*mcp.TextContent); ok {
+				texts = append(texts, text.Text)
+			}
 		}
 
 		anthropicToolResults = append(anthropicToolResults, anthropic.NewToolResultBlock(
 			toolUseBlock.ID,
-			string(resultJSON),
-			false,
+			strings.Join(texts, "\n"),
+			mcpToolResult.IsError,
 		))
 	}
 
@@ -187,7 +239,7 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 
 	// Make another API call with tool results
 	response, err = c.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaude3_7SonnetLatest,
+		Model:     model,
 		MaxTokens: 1024,
 		Messages:  messages,
 	})
@@ -265,6 +317,18 @@ func main() {
 
 	if err := client.ConnectToServer(ctx, serverArgs); err != nil {
 		log.Fatalf("Failed to connect to MCP server: %v", err)
+	}
+
+	// Connecting and listing tools needs no credentials; querying them does.
+	// Matching the Python and TypeScript clients, report and exit rather than
+	// failing, so the connection itself can be exercised without a key.
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		fmt.Println("\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:")
+		fmt.Println("  export ANTHROPIC_API_KEY=your-api-key-here")
+		if err := client.Cleanup(); err != nil {
+			log.Printf("Cleanup error: %v", err)
+		}
+		return
 	}
 
 	if err := client.ChatLoop(ctx); err != nil {
