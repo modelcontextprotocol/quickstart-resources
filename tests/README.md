@@ -1,13 +1,26 @@
 # MCP Quickstart Smoke Tests
 
-This directory contains smoke tests for the MCP quickstart examples. These tests verify that all example servers and clients can start and respond correctly, without calling external APIs.
+This directory contains smoke tests for the MCP quickstart examples. These tests verify that all example servers and clients can start and respond correctly.
 
 ## Overview
 
 The smoke tests verify:
 
-- **Servers**: Each weather server (Python, TypeScript, Rust) can start and respond to MCP protocol requests
-- **Clients**: Each MCP client (Python, TypeScript) can connect to a mock server and list tools
+- **Servers**: Each weather server (Python, TypeScript, Rust, Go) can start, respond to MCP protocol requests, and honour the output schemas it advertises
+- **Clients**: Each MCP client (Python, TypeScript, Go, Rust) can connect to a mock server and list tools
+
+The Ruby examples are not covered: the `mcp` gem cannot negotiate protocol revision `2026-07-28`.
+
+## Structured output
+
+Listing tools is not enough to catch a broken structured result, so each server test also **calls** every tool that declares an `outputSchema` and checks the answer:
+
+- the result must carry `structuredContent`, and it must conform to the declared schema (the SDK validates this and throws on a mismatch);
+- a tool with an array-rooted schema must return a **top-level JSON array**, and one with an object-rooted schema must return an object.
+
+The array case is the one worth guarding. A server that advertises `{"type": "array"}` and then answers `{"result": [...]}` passes a tools/list-only test and fails this one.
+
+Tool calls reach the live NWS API. When it is unreachable the tools return an error result, which the test reports as a skip rather than a failure — someone else's outage should not fail the build.
 
 ## Running Tests
 
@@ -23,6 +36,7 @@ The smoke tests verify:
 - **uv** (Python package manager)
 - **Rust** stable
 - **Cargo** (for Rust builds)
+- **Go** 1.25+
 
 ## How It Works
 
@@ -30,10 +44,10 @@ The smoke tests verify:
 
 Each server test:
 
-1. Builds/prepares the server if needed
+1. Builds/prepares the server if needed (a failed build prints its compiler output rather than swallowing it)
 2. Uses `mcp-test-client.ts` to connect to the server via stdio
-3. Sends MCP initialize and `tools/list` requests
-4. Verifies the server responds with a valid tool list
+3. Negotiates a protocol era with `mode: "auto"` — one `server/discover` probe, falling back to the `2025-11-25` `initialize` handshake
+4. Lists tools, then calls each tool that declares an `outputSchema` and checks the structured result against it
 5. Reports pass/fail
 
 ### Client Tests
@@ -68,7 +82,9 @@ node tests/helpers/build/mcp-test-client.js python weather.py
 
 ### mock-mcp-server.ts
 
-A minimal MCP server that verifies clients call the `tools/list` method and returns an empty tool list. Used to test clients without requiring a real weather server. Exits with an error if the client doesn't call `tools/list`.
+A minimal MCP server that verifies clients call the `tools/list` method. Used to test clients without requiring a real weather server. Exits with an error if the client doesn't call `tools/list`.
+
+It advertises two tools whose output schemas cover both shapes a structured result can take: an object root, and an array root. The array-rooted one is deliberate — a client that compiles every declared `outputSchema` up front, as the Go and Rust quickstart clients do, will fail here if it assumes an output schema is always `{"type": "object"}`.
 
 **Usage**:
 
