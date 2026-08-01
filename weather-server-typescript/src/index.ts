@@ -138,7 +138,7 @@ function buildServer(): McpServer {
     },
     async ({ state }) => {
       const stateCode = state.toUpperCase();
-      const alertsUrl = `${NWS_API_BASE}/alerts?area=${stateCode}`;
+      const alertsUrl = `${NWS_API_BASE}/alerts/active/area/${stateCode}`;
       const alertsData = await makeNWSRequest<AlertsResponse>(alertsUrl);
 
       if (!alertsData) {
