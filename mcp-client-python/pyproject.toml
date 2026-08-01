@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.87.0",
-    "mcp>=2.0.0b2",
+    "mcp>=2.0.0",
+    # client.py imports TextContent from mcp_types, which `mcp` pins exactly.
+    "mcp-types>=2.0.0",
     "python-dotenv>=1.2.2",
 ]
 
@@ -14,11 +16,6 @@ dependencies = [
 dev = [
     "ruff>=0.15.8",
 ]
-
-# The 2026-07-28 protocol revision only ships in the mcp 2.0 prereleases, so
-# allow them without every command needing --prerelease=allow.
-[tool.uv]
-prerelease = "allow"
 
 [tool.ruff]
 line-length = 120

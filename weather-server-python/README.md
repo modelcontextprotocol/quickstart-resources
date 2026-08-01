@@ -9,5 +9,3 @@ Both tools declare an output schema and return `structured_content`. `get_foreca
 `Alerts` is a `RootModel[list[Alert]]` rather than a plain `list[Alert]` because the SDK wraps non-object return types as `{"result": ...}`; a `RootModel` is taken as the schema exactly as written. See [Structured Output](https://py.sdk.modelcontextprotocol.io/v2/servers/structured-output/) in the SDK docs.
 
 Note that an array-rooted schema requires a `2026-07-28` client. This SDK does not project it down for older ones — it raises instead.
-
-Requires the `mcp` 2.0 prereleases, so `pyproject.toml` sets `[tool.uv] prerelease = "allow"`.
