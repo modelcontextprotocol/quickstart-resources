@@ -76,11 +76,23 @@ type Alert struct {
 	Instructions string `json:"instructions" jsonschema:"What people in the area should do"`
 }
 
+// Period is one element of Forecast's periods. ForecastPeriod above is the
+// shape NWS sends; this is the shape the tool publishes, kept separate for the
+// same reason Alert is separate from AlertProperties.
+type Period struct {
+	Name             string `json:"name"`
+	Temperature      int    `json:"temperature"`
+	TemperatureUnit  string `json:"temperature_unit"`
+	WindSpeed        string `json:"wind_speed"`
+	WindDirection    string `json:"wind_direction"`
+	DetailedForecast string `json:"detailed_forecast"`
+}
+
 // Forecast is get_forecast's structured output: the object case.
 type Forecast struct {
-	Latitude  float64          `json:"latitude" jsonschema:"Latitude the forecast is for"`
-	Longitude float64          `json:"longitude" jsonschema:"Longitude the forecast is for"`
-	Periods   []ForecastPeriod `json:"periods" jsonschema:"The forecast periods, soonest first"`
+	Latitude  float64  `json:"latitude" jsonschema:"Latitude the forecast is for"`
+	Longitude float64  `json:"longitude" jsonschema:"Longitude the forecast is for"`
+	Periods   []Period `json:"periods" jsonschema:"The forecast periods, soonest first"`
 }
 
 func makeNWSRequest[T any](ctx context.Context, url string) (*T, error) {
@@ -161,10 +173,22 @@ func getForecast(ctx context.Context, req *mcp.CallToolRequest, input ForecastIn
 	// Show next 5 periods
 	periods = periods[:min(5, len(periods))]
 
+	published := make([]Period, 0, len(periods))
+	for _, period := range periods {
+		published = append(published, Period{
+			Name:             period.Name,
+			Temperature:      period.Temperature,
+			TemperatureUnit:  period.TemperatureUnit,
+			WindSpeed:        period.WindSpeed,
+			WindDirection:    period.WindDirection,
+			DetailedForecast: period.DetailedForecast,
+		})
+	}
+
 	forecast := Forecast{
 		Latitude:  input.Latitude,
 		Longitude: input.Longitude,
-		Periods:   periods,
+		Periods:   published,
 	}
 
 	var formatted []string
