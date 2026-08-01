@@ -286,6 +286,9 @@ impl Weather {
 impl ServerHandler for Weather {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
+        // Without this the server reports rmcp's own crate name and version
+        // rather than its own.
+        info.server_info = Implementation::new("weather", "1.0.0");
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
