@@ -4,4 +4,4 @@ source "https://rubygems.org"
 
 gem "anthropic", '>= 1.60.0'
 gem "dotenv"
-gem "mcp", '>= 0.15.0'
+gem "mcp", ">= 1.1.0"
