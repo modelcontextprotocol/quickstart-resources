@@ -206,7 +206,12 @@ end
 server = MCP::Server.new(
   name: "weather",
   version: "1.0.0",
-  tools: [GetAlerts, GetForecast]
+  tools: [GetAlerts, GetForecast],
+  # The gem otherwise advertises prompts, resources and logging as well. This
+  # server has only tools, and logging is deprecated as of 2026-07-28
+  # (SEP-2577). No listChanged: change notifications are delivered over
+  # `subscriptions/listen`, which this server does not serve.
+  capabilities: { tools: {} }
 )
 
 transport = MCP::Server::Transports::StdioTransport.new(server)
