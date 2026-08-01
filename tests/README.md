@@ -7,9 +7,9 @@ This directory contains smoke tests for the MCP quickstart examples. These tests
 The smoke tests verify:
 
 - **Servers**: Each weather server (Python, TypeScript, Rust, Go) can start, respond to MCP protocol requests, and honour the output schemas it advertises
-- **Clients**: Each MCP client (Python, TypeScript, Go, Rust) can connect to a mock server and list tools
+- **Clients**: The Python and TypeScript MCP clients can connect to a mock server and list tools
 
-The Ruby examples are not covered: the `mcp` gem cannot negotiate protocol revision `2026-07-28`.
+The Go and Rust clients are not covered here: on `main` both abort when no `.env` file is present, so they cannot be driven without credentials. Making them start credential-free is a change in their own directories, so their coverage lands with those changes rather than here. The Ruby examples are not covered either — the `mcp` gem cannot negotiate protocol revision `2026-07-28`.
 
 ## Structured output
 
@@ -30,7 +30,7 @@ Tool calls reach the live NWS API. When it is unreachable the tools return an er
 
 ## Requirements
 
-- **Node.js** 16+
+- **Node.js** 20+ (required by the 2.0 MCP SDK packages)
 - **npm** (for Node.js dependencies)
 - **Python** 3.10+
 - **uv** (Python package manager)
@@ -107,7 +107,7 @@ Install required dependencies:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Node.js (via nvm)
-nvm install 18
+nvm install 24
 
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

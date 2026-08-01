@@ -19,6 +19,14 @@ Gemfile.lock
 # Environment variables file
 .env
 
+# Go-generated binaries
+# `smoke-test.sh` builds the Go examples as `server`; `go build` with no -o
+# names the binary after its directory.
+*.exe
+/weather-server-go/server
+/weather-server-go/weather-server-go
+/mcp-client-go/mcp-client-go
+
 # Rust-generated files
 debug
 target

@@ -83,10 +83,10 @@ ensure_helpers_built() {
     if [ ! -f "${TEST_CLIENT}" ] || [ ! -f "${MOCK_SERVER}" ]; then
         print_error "Test helpers not built"
         print_header "Building test helpers..."
-        cd "${PROJECT_ROOT}/tests/helpers" || exit 1
+        cd "${PROJECT_ROOT}/tests/helpers" || return 1
         npm install >/dev/null 2>&1
         npm run build >/dev/null 2>&1
-        cd - >/dev/null || exit 1
+        cd - >/dev/null || return 1
         print_success "Test helpers built"
     fi
 }
@@ -108,9 +108,13 @@ run_build() {
 }
 
 # Ensure a project directory is built (TypeScript/Rust/Go)
+#
+# Returns rather than exits, for the same reason check_dependency does: one
+# project failing to build should fail its own test, not abort the suite
+# before the summary is printed.
 ensure_built() {
     local dir=$1
-    cd "${dir}" || exit 1
+    cd "${dir}" || return 1
 
     # Install npm dependencies if needed
     if [ -f "package.json" ] && [ ! -d "node_modules" ]; then

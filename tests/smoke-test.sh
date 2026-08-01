@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 set -e
 
 # Source utilities
@@ -69,6 +69,21 @@ test_weather_server_rust() {
     node "${TEST_CLIENT}" "${server_bin}"
 }
 
+# Test: Go weather server
+test_weather_server_go() {
+    check_dependency go || return 1
+    local server_dir="${PROJECT_ROOT}/weather-server-go"
+    ensure_built "${server_dir}" || return 1
+
+    local server_bin
+    server_bin=$(resolve_binary "${server_dir}/server") || {
+        print_error "no server binary found in ${server_dir}"
+        return 1
+    }
+
+    node "${TEST_CLIENT}" "${server_bin}"
+}
+
 # Test: Python MCP client
 test_mcp_client_python() {
     check_dependency uv || return 1
@@ -87,14 +102,15 @@ test_mcp_client_typescript() {
 
 # Run all tests
 #
-# The Go examples and the Rust client are still uncovered. Each needs a change
-# in its own directory before it can be tested here — the Go and Rust clients
+# All four servers are covered. The Go and Rust clients are not: on main both
 # abort when no .env file is present, so they cannot be driven without
-# credentials — so their coverage lands with those changes rather than here.
+# credentials. Making them start credential-free is a change in their own
+# directories, so their coverage lands with those changes rather than here.
 print_header "Running smoke tests"
 run_test "weather-server-python" test_weather_server_python
 run_test "weather-server-typescript" test_weather_server_typescript
 run_test "weather-server-rust" test_weather_server_rust
+run_test "weather-server-go" test_weather_server_go
 run_test "mcp-client-python" test_mcp_client_python
 run_test "mcp-client-typescript" test_mcp_client_typescript
 

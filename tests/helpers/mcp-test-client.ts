@@ -112,6 +112,9 @@ async function testServer(command: string, args: string[]) {
     process.exit(0);
   } catch (error) {
     console.error(`✗ Server test failed: ${error}`);
+    // Close on the way out too, or the spawned server outlives this process and
+    // a failing test hangs instead of reporting.
+    await client.close().catch(() => {});
     process.exit(1);
   }
 }
