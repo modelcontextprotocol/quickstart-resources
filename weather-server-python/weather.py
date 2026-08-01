@@ -77,14 +77,17 @@ async def get_alerts(state: str) -> Alerts:
         raise ValueError(f"Unable to fetch alerts for {state.upper()}.")
 
     # An empty result is an empty array, not an error.
+    #
+    # `or` rather than a `get` default: NWS sends these fields as explicit
+    # nulls rather than omitting them, and a default only covers a missing key.
     return Alerts(
         [
             Alert(
-                event=props.get("event", "Unknown"),
-                area=props.get("areaDesc", "Unknown"),
-                severity=props.get("severity", "Unknown"),
-                description=props.get("description", "No description available"),
-                instructions=props.get("instruction", "No specific instructions provided"),
+                event=props.get("event") or "Unknown",
+                area=props.get("areaDesc") or "Unknown",
+                severity=props.get("severity") or "Unknown",
+                description=props.get("description") or "No description available",
+                instructions=props.get("instruction") or "No specific instructions provided",
             )
             for props in (feature["properties"] for feature in data["features"])
         ]
