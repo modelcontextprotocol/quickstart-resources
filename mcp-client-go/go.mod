@@ -6,7 +6,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.14.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/joho/godotenv v1.5.1
-	github.com/modelcontextprotocol/go-sdk v1.7.0-pre.3
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 
 require (
