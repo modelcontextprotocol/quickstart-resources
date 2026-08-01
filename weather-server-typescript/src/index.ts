@@ -29,8 +29,8 @@ interface AlertFeature {
     event?: string;
     areaDesc?: string;
     severity?: string;
-    status?: string;
-    headline?: string;
+    description?: string;
+    instruction?: string;
   };
 }
 
@@ -40,7 +40,7 @@ interface ForecastPeriod {
   temperatureUnit?: string;
   windSpeed?: string;
   windDirection?: string;
-  shortForecast?: string;
+  detailedForecast?: string;
 }
 
 interface AlertsResponse {
@@ -69,8 +69,8 @@ const alertsOutputSchema = z.array(
     event: z.string().describe("The kind of weather event"),
     area: z.string().describe("The area the alert covers"),
     severity: z.string().describe("How severe the event is"),
-    status: z.string().describe("The status of the alert"),
-    headline: z.string().describe("A one-line summary of the alert"),
+    description: z.string().describe("What is happening"),
+    instructions: z.string().describe("What people in the area should do"),
   }),
 );
 
@@ -83,10 +83,10 @@ const forecastOutputSchema = z.object({
       z.object({
         name: z.string(),
         temperature: z.number(),
-        temperatureUnit: z.string(),
-        windSpeed: z.string(),
-        windDirection: z.string(),
-        shortForecast: z.string(),
+        temperature_unit: z.string(),
+        wind_speed: z.string(),
+        wind_direction: z.string(),
+        detailed_forecast: z.string(),
       }),
     )
     .describe("The forecast periods, soonest first"),
@@ -101,8 +101,8 @@ function formatAlert(alert: Alert): string {
     `Event: ${alert.event}`,
     `Area: ${alert.area}`,
     `Severity: ${alert.severity}`,
-    `Status: ${alert.status}`,
-    `Headline: ${alert.headline}`,
+    `Description: ${alert.description}`,
+    `Instructions: ${alert.instructions}`,
     "---",
   ].join("\n");
 }
@@ -110,9 +110,9 @@ function formatAlert(alert: Alert): string {
 function formatPeriod(period: Forecast["periods"][number]): string {
   return [
     `${period.name}:`,
-    `Temperature: ${period.temperature}°${period.temperatureUnit}`,
-    `Wind: ${period.windSpeed} ${period.windDirection}`,
-    period.shortForecast,
+    `Temperature: ${period.temperature}°${period.temperature_unit}`,
+    `Wind: ${period.wind_speed} ${period.wind_direction}`,
+    period.detailed_forecast,
     "---",
   ].join("\n");
 }
@@ -146,12 +146,15 @@ function buildServer(): McpServer {
       }
 
       // An empty result is an empty array, not an error.
+      // `??` catches the nulls NWS sends for these fields; it does not omit
+      // them, so a key-missing default would not fire.
       const alerts: Alert[] = (alertsData.features ?? []).map((feature) => ({
         event: feature.properties.event ?? "Unknown",
         area: feature.properties.areaDesc ?? "Unknown",
         severity: feature.properties.severity ?? "Unknown",
-        status: feature.properties.status ?? "Unknown",
-        headline: feature.properties.headline ?? "No headline",
+        description: feature.properties.description ?? "No description available",
+        instructions:
+          feature.properties.instruction ?? "No specific instructions provided",
       }));
 
       const text =
@@ -212,13 +215,14 @@ function buildServer(): McpServer {
       const forecast: Forecast = {
         latitude,
         longitude,
-        periods: rawPeriods.map((period) => ({
+        // Only show the next 5 periods.
+        periods: rawPeriods.slice(0, 5).map((period) => ({
           name: period.name ?? "Unknown",
           temperature: period.temperature ?? 0,
-          temperatureUnit: period.temperatureUnit ?? "F",
-          windSpeed: period.windSpeed ?? "Unknown",
-          windDirection: period.windDirection ?? "",
-          shortForecast: period.shortForecast ?? "No forecast available",
+          temperature_unit: period.temperatureUnit ?? "F",
+          wind_speed: period.windSpeed ?? "Unknown",
+          wind_direction: period.windDirection ?? "",
+          detailed_forecast: period.detailedForecast ?? "No forecast available",
         })),
       };
 
