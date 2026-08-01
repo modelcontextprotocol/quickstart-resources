@@ -260,11 +260,18 @@ func alertsOutputSchema() *jsonschema.Schema {
 }
 
 func main() {
-	// Create MCP server
+	// Create MCP server.
+	//
+	// Passing an empty Capabilities suppresses the SDK's historical default of
+	// advertising {"logging":{}} — this server does no logging, and the logging
+	// feature is deprecated as of 2026-07-28 (SEP-2577). The tools capability is
+	// still inferred from the tools registered below.
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "weather",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		Capabilities: &mcp.ServerCapabilities{},
+	})
 
 	// Add get_forecast tool
 	mcp.AddTool(server, &mcp.Tool{
