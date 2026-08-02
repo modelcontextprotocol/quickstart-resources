@@ -2,7 +2,7 @@
 
 See the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build-server) tutorial for more information.
 
-## Structured output
+## Structured content
 
 Both tools declare an `output_schema` and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/draft/server/tools#structured-content) in the spec.
 
@@ -14,7 +14,7 @@ The tools also return a human-readable `content` block. When you pass your own `
 
 ## Known limitation: strict `2026-07-28` clients reject this server
 
-The `mcp` gem never emits the `resultType` field on results. The 2026-07-28 schema makes it mandatory — "Servers implementing this protocol version MUST include this field" — so a client that enforces the revision rejects every response, including `tools/list`, before it ever reaches the structured output.
+The `mcp` gem never emits the `resultType` field on results. The 2026-07-28 schema makes it mandatory — "Servers implementing this protocol version MUST include this field" — so a client that enforces the revision rejects every response, including `tools/list`, before it ever reaches the structured content.
 
 There is no way to set it from user code: `MCP::Server` accepts `ttl_ms:` and `cache_scope:` for the SEP-2549 cache hints, but nothing for `resultType`. The gem's own client does not check the field, so the gap is invisible when a Ruby client talks to a Ruby server, and only appears cross-SDK.
 

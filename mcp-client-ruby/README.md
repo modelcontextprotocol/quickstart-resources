@@ -2,7 +2,7 @@
 
 See the [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) tutorial for more information.
 
-## Structured output
+## Structured content
 
 The spec says clients SHOULD validate structured results against the schema the tool declares, and this SDK's client does not do it for you — `MCP::Client::Tool#output_schema` hands back the raw schema from the wire and nothing checks results against it. So the client compiles each declared schema once at connect time with `MCP::Tool::OutputSchema.new` and validates every non-error result.
 
