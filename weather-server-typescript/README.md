@@ -2,7 +2,7 @@
 
 See the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build-server) tutorial for more information.
 
-## Structured output
+## Structured content
 
 Both tools declare an `outputSchema` and return `structuredContent`. `get-forecast` returns an object; `get-alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/draft/server/tools#structured-content) in the spec.
 

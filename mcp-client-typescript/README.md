@@ -2,7 +2,7 @@
 
 See the [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) tutorial for more information.
 
-## Structured output
+## Structured content
 
 The SDK validates every result against the tool's declared `outputSchema`, so the spec's client-side SHOULD needs no code here.
 
