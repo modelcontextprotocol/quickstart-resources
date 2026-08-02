@@ -11,7 +11,7 @@ The smoke tests verify:
 
 The Go and Rust clients are not covered here: on `main` both abort when no `.env` file is present, so they cannot be driven without credentials. Making them start credential-free is a change in their own directories, so their coverage lands with those changes rather than here. The Ruby examples are not covered either — the `mcp` gem cannot negotiate protocol revision `2026-07-28`.
 
-## Structured output
+## Structured content
 
 Listing tools is not enough to catch a broken structured result, so each server test also **calls** every tool that declares an `outputSchema` and checks the answer:
 

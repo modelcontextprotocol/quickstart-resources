@@ -106,7 +106,7 @@ async function testServer(command: string, args: string[]) {
       checked += 1;
     }
 
-    console.error(`✓ Verified structured output for ${checked} tools`);
+    console.error(`✓ Verified structured content for ${checked} tools`);
     console.error("✓ Server test passed");
     await client.close();
     process.exit(0);
