@@ -68,7 +68,7 @@ struct ForecastPeriod {
     detailed_forecast: String,
 }
 
-/// One element of `get_alerts`' structured output. Declaring `Vec<Alert>` as
+/// One element of `get_alerts`' structured content. Declaring `Vec<Alert>` as
 /// the output schema makes `structuredContent` a top-level JSON array rather
 /// than an object wrapping one, which revision 2026-07-28 is the first to allow.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -85,7 +85,7 @@ pub struct Alert {
     instructions: String,
 }
 
-/// `get_forecast`' structured output: the object case.
+/// `get_forecast`' structured content: the object case.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Forecast {
     /// Latitude the forecast is for.

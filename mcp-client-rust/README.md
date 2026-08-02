@@ -2,7 +2,7 @@
 
 See the [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) tutorial for more information.
 
-## Structured output
+## Structured content
 
 rmcp does not validate tool output, so this client compiles each declared `outputSchema` at connect time and checks results against it — the spec's client-side SHOULD. It uses the [`jsonschema`](https://docs.rs/jsonschema) crate, which rmcp's own documentation recommends.
 
