@@ -18,7 +18,7 @@ The server will communicate via stdio and expose two MCP tools:
 - `get_forecast` - Get weather forecast for a location (requires latitude and longitude)
 - `get_alerts` - Get weather alerts for a US state (requires two-letter state code)
 
-## Structured output
+## Structured content
 
 Both tools advertise an `outputSchema` and return `StructuredContent`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/draft/server/tools#structured-content) in the spec.
 

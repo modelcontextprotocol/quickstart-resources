@@ -65,7 +65,7 @@ type AlertProperties struct {
 	Instruction string `json:"instruction"`
 }
 
-// Alert is one element of get_alerts' structured output. Returning []Alert
+// Alert is one element of get_alerts' structured content. Returning []Alert
 // makes structuredContent a top-level JSON array rather than an object
 // wrapping one, which protocol revision 2026-07-28 is the first to allow.
 type Alert struct {
@@ -88,7 +88,7 @@ type Period struct {
 	DetailedForecast string `json:"detailed_forecast"`
 }
 
-// Forecast is get_forecast's structured output: the object case.
+// Forecast is get_forecast's structured content: the object case.
 type Forecast struct {
 	Latitude  float64  `json:"latitude" jsonschema:"Latitude the forecast is for"`
 	Longitude float64  `json:"longitude" jsonschema:"Longitude the forecast is for"`
