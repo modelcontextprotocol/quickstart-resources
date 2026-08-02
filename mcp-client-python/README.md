@@ -2,7 +2,7 @@
 
 See the [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) tutorial for more information.
 
-## Structured output
+## Structured content
 
 `call_tool` validates every result against the tool's declared output schema, so the spec's client-side SHOULD needs no code here.
 
