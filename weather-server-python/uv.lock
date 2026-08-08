@@ -1015,6 +1015,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx2" },
     { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -1026,6 +1027,7 @@ dev = [
 requires-dist = [
     { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
 ]
 
 [package.metadata.requires-dev]

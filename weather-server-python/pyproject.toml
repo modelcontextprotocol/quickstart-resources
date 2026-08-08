@@ -9,6 +9,8 @@ requires-python = ">=3.10"
 dependencies = [
     "httpx2>=2.5.0",
     "mcp[cli]>=2.0.0",
+    # weather.py imports BaseModel, Field, and RootModel directly. RootModel is v2-only.
+    "pydantic>=2.0.0",
 ]
 
 [build-system]
