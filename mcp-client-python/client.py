@@ -13,6 +13,9 @@ load_dotenv()  # load environment variables from .env
 
 # Claude model constant
 ANTHROPIC_MODEL = "claude-sonnet-5"
+# Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
+# plus the reply, so leave room for both.
+MAX_TOKENS = 10000
 MAX_TOOL_TURNS = 10
 
 
@@ -74,7 +77,7 @@ class MCPClient:
         final_text = []
 
         response = self.anthropic.messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=1000, messages=messages, tools=available_tools
+            model=ANTHROPIC_MODEL, max_tokens=MAX_TOKENS, messages=messages, tools=available_tools
         )
 
         for _ in range(MAX_TOOL_TURNS):
@@ -115,7 +118,7 @@ class MCPClient:
 
             response = self.anthropic.messages.create(
                 model=ANTHROPIC_MODEL,
-                max_tokens=1000,
+                max_tokens=MAX_TOKENS,
                 messages=messages,
                 tools=available_tools,
             )

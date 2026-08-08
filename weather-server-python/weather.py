@@ -35,12 +35,12 @@ class Alerts(RootModel[list[Alert]]):
 class Period(BaseModel):
     """One period of a forecast."""
 
-    name: str
-    temperature: int
-    temperature_unit: str
-    wind_speed: str
-    wind_direction: str
-    detailed_forecast: str
+    name: str = Field(description="Label for the period, e.g. Tonight or Tuesday")
+    temperature: int = Field(description="Forecast temperature")
+    temperature_unit: str = Field(description="Unit of the temperature, F or C")
+    wind_speed: str = Field(description="Wind speed, e.g. 10 to 15 mph")
+    wind_direction: str = Field(description="Wind direction as a compass point")
+    detailed_forecast: str = Field(description="Prose description of the period")
 
 
 class Forecast(BaseModel):
