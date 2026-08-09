@@ -5,20 +5,24 @@ from pathlib import Path
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from mcp import ClientSession, StdioServerParameters
+from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp_types import TextContent
 
 load_dotenv()  # load environment variables from .env
 
 # Claude model constant
-ANTHROPIC_MODEL = "claude-sonnet-4-5"
+ANTHROPIC_MODEL = "claude-sonnet-5"
+# Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
+# plus the reply, so leave room for both.
+MAX_TOKENS = 10000
 MAX_TOOL_TURNS = 10
 
 
 class MCPClient:
     def __init__(self):
         # Initialize session and client objects
-        self.session: ClientSession | None = None
+        self.client: Client | None = None
         self.exit_stack = AsyncExitStack()
         self._anthropic: Anthropic | None = None
 
@@ -50,31 +54,30 @@ class MCPClient:
         else:
             server_params = StdioServerParameters(command="node", args=[server_script_path], env=None)
 
-        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-        self.stdio, self.write = stdio_transport
-        self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
-
-        await self.session.initialize()
+        # "auto" probes server/discover, falling back to the 2025-11-25 handshake.
+        self.client = await self.exit_stack.enter_async_context(
+            Client(stdio_client(server_params), mode="auto")
+        )
 
         # List available tools
-        response = await self.session.list_tools()
+        response = await self.client.list_tools()
         tools = response.tools
-        print("\nConnected to server with tools:", [tool.name for tool in tools])
+        print(f"\nConnected over protocol {self.client.protocol_version} with tools:", [tool.name for tool in tools])
 
     async def process_query(self, query: str) -> str:
         """Process a query using Claude and available tools"""
         messages = [{"role": "user", "content": query}]
 
-        tools_response = await self.session.list_tools()
+        tools_response = await self.client.list_tools()
         available_tools = [
-            {"name": tool.name, "description": tool.description, "input_schema": tool.inputSchema}
+            {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
             for tool in tools_response.tools
         ]
 
         final_text = []
 
         response = self.anthropic.messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=1000, messages=messages, tools=available_tools
+            model=ANTHROPIC_MODEL, max_tokens=MAX_TOKENS, messages=messages, tools=available_tools
         )
 
         for _ in range(MAX_TOOL_TURNS):
@@ -90,13 +93,23 @@ class MCPClient:
 
             tool_results = []
             for tool_use in tool_uses:
-                result = await self.session.call_tool(tool_use.name, tool_use.input)
+                # call_tool validates the result against the declared schema.
+                result = await self.client.call_tool(tool_use.name, tool_use.input)
                 final_text.append(f"[Calling tool {tool_use.name} with args {tool_use.input}]")
+
+                # structured_content is data the application can use directly.
+                if isinstance(result.structured_content, list):
+                    final_text.append(f"[{tool_use.name} returned {len(result.structured_content)} items]")
+
+                # content is a list of block types; forward only the text ones.
                 tool_results.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_use.id,
-                        "content": result.content,
+                        "content": "\n".join(
+                            block.text for block in result.content if isinstance(block, TextContent)
+                        ),
+                        "is_error": bool(result.is_error),
                     }
                 )
 
@@ -105,7 +118,7 @@ class MCPClient:
 
             response = self.anthropic.messages.create(
                 model=ANTHROPIC_MODEL,
-                max_tokens=1000,
+                max_tokens=MAX_TOKENS,
                 messages=messages,
                 tools=available_tools,
             )
@@ -119,8 +132,9 @@ class MCPClient:
         print("Type your queries or 'quit' to exit.")
 
         while True:
+            # input() blocks, so keep it off the event loop.
             try:
-                query = input("\nQuery: ").strip()
+                query = (await asyncio.to_thread(input, "\nQuery: ")).strip()
             except (EOFError, KeyboardInterrupt):
                 break
 

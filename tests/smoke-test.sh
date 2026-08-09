@@ -38,57 +38,79 @@ run_test() {
 
 # Test: Python weather server
 test_weather_server_python() {
-    check_dependency uv
+    check_dependency uv || return 1
     local server_dir="${PROJECT_ROOT}/weather-server-python"
     node "${TEST_CLIENT}" uv --directory "${server_dir}" run weather.py
 }
 
 # Test: TypeScript weather server
 test_weather_server_typescript() {
-    check_dependency node
-    check_dependency npm
+    check_dependency node || return 1
+    check_dependency npm || return 1
     local server_dir="${PROJECT_ROOT}/weather-server-typescript"
-    ensure_built "${server_dir}"
+    ensure_built "${server_dir}" || return 1
     node "${TEST_CLIENT}" node "${server_dir}/build/index.js"
 }
 
 # Test: Rust weather server
 test_weather_server_rust() {
-    check_dependency cargo
+    check_dependency cargo || return 1
     local server_dir="${PROJECT_ROOT}/weather-server-rust"
-    ensure_built "${server_dir}"
+    ensure_built "${server_dir}" || return 1
 
     # Determine which binary to use
-    if [ -f "${server_dir}/target/release/weather" ]; then
-        local server_bin="${server_dir}/target/release/weather"
-    else
-        local server_bin="${server_dir}/target/debug/weather"
-    fi
+    local server_bin
+    server_bin=$(resolve_binary "${server_dir}/target/release/weather" \
+        || resolve_binary "${server_dir}/target/debug/weather") || {
+        print_error "no weather binary found in ${server_dir}/target"
+        return 1
+    }
+
+    node "${TEST_CLIENT}" "${server_bin}"
+}
+
+# Test: Go weather server
+test_weather_server_go() {
+    check_dependency go || return 1
+    local server_dir="${PROJECT_ROOT}/weather-server-go"
+    ensure_built "${server_dir}" || return 1
+
+    local server_bin
+    server_bin=$(resolve_binary "${server_dir}/server") || {
+        print_error "no server binary found in ${server_dir}"
+        return 1
+    }
 
     node "${TEST_CLIENT}" "${server_bin}"
 }
 
 # Test: Python MCP client
 test_mcp_client_python() {
-    check_dependency uv
+    check_dependency uv || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-python"
     uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Test: TypeScript MCP client
 test_mcp_client_typescript() {
-    check_dependency node
-    check_dependency npm
+    check_dependency node || return 1
+    check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
-    ensure_built "${client_dir}"
+    ensure_built "${client_dir}" || return 1
     node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Run all tests
+#
+# All four servers are covered. The Go and Rust clients are not: on main both
+# abort when no .env file is present, so they cannot be driven without
+# credentials. Making them start credential-free is a change in their own
+# directories, so their coverage lands with those changes rather than here.
 print_header "Running smoke tests"
 run_test "weather-server-python" test_weather_server_python
 run_test "weather-server-typescript" test_weather_server_typescript
 run_test "weather-server-rust" test_weather_server_rust
+run_test "weather-server-go" test_weather_server_go
 run_test "mcp-client-python" test_mcp_client_python
 run_test "mcp-client-typescript" test_mcp_client_typescript
 
