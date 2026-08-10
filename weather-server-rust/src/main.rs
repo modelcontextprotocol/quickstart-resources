@@ -292,18 +292,6 @@ impl ServerHandler for Weather {
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
-
-    // Hand-written because `#[tool_handler]` generates `ttl_ms: None,
-    // cache_scope: None`, and both are required at revision 2026-07-28.
-    async fn list_tools(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
-    ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(self.tool_router.list_all())
-            .with_ttl_ms(60_000)
-            .with_cache_scope(CacheScope::Public))
-    }
 }
 
 #[tokio::main]
