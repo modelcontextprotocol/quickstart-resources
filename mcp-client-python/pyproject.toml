@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.87.0",
-    "mcp>=1.28.1",
+    "mcp>=2.0.0",
+    # client.py imports TextContent from mcp_types, which `mcp` pins exactly.
+    "mcp-types>=2.0.0",
     "python-dotenv>=1.2.2",
 ]
 
