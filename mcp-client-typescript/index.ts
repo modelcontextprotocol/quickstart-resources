@@ -1,7 +1,10 @@
 import { Anthropic } from "@anthropic-ai/sdk";
 import {
+  ContentBlockParam,
   MessageParam,
   Tool,
+  ToolResultBlockParam,
+  ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -13,6 +16,7 @@ import dotenv from "dotenv";
 dotenv.config(); // load environment variables from .env
 
 const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const MAX_TOOL_TURNS = 10;
 
 class MCPClient {
   private mcp: Client;
@@ -89,52 +93,62 @@ class MCPClient {
       },
     ];
 
-    // Initial Claude API call
-    const response = await this.anthropic.messages.create({
+    let response = await this.anthropic.messages.create({
       model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       messages,
       tools: this.tools,
     });
 
-    // Process response and handle tool calls
-    const finalText = [];
+    const finalText: string[] = [];
 
-    for (const content of response.content) {
-      if (content.type === "text") {
-        finalText.push(content.text);
-      } else if (content.type === "tool_use") {
-        // Execute tool call
-        const toolName = content.name;
-        const toolArgs = content.input as { [x: string]: unknown } | undefined;
+    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      const toolUses: ToolUseBlock[] = [];
 
+      for (const block of response.content) {
+        if (block.type === "text") {
+          finalText.push(block.text);
+        } else if (block.type === "tool_use") {
+          toolUses.push(block);
+        }
+      }
+
+      if (toolUses.length === 0) {
+        return finalText.join("\n");
+      }
+
+      const toolResults: ToolResultBlockParam[] = [];
+      for (const toolUse of toolUses) {
+        const toolArgs = toolUse.input as { [x: string]: unknown } | undefined;
+        finalText.push(
+          `[Calling tool ${toolUse.name} with args ${JSON.stringify(toolArgs)}]`,
+        );
         const result = await this.mcp.callTool({
-          name: toolName,
+          name: toolUse.name,
           arguments: toolArgs,
         });
-        finalText.push(
-          `[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`,
-        );
-
-        // Continue conversation with tool results
-        messages.push({
-          role: "user",
-          content: result.content as string,
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result.content as ToolResultBlockParam["content"],
         });
-
-        // Get next response from Claude
-        const response = await this.anthropic.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 1000,
-          messages,
-        });
-
-        finalText.push(
-          response.content[0].type === "text" ? response.content[0].text : "",
-        );
       }
+
+      messages.push({
+        role: "assistant",
+        content: response.content as unknown as ContentBlockParam[],
+      });
+      messages.push({ role: "user", content: toolResults });
+
+      response = await this.anthropic.messages.create({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1000,
+        messages,
+        tools: this.tools,
+      });
     }
 
+    finalText.push(`[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`);
     return finalText.join("\n");
   }
 
@@ -146,20 +160,38 @@ class MCPClient {
       input: process.stdin,
       output: process.stdout,
     });
+    // rl.question() doesn't reject on stdin EOF on its own; wire its close
+    // event to an AbortSignal so EOF (Ctrl-D) and SIGINT both unblock it.
+    const ac = new AbortController();
+    const onClose = () => ac.abort();
+    rl.on("close", onClose);
+    const onSigint = () => rl.close();
+    process.once("SIGINT", onSigint);
 
     try {
       console.log("\nMCP Client Started!");
       console.log("Type your queries or 'quit' to exit.");
 
       while (true) {
-        const message = await rl.question("\nQuery: ");
-        if (message.toLowerCase() === "quit") {
+        let message: string;
+        try {
+          message = await rl.question("\nQuery: ", { signal: ac.signal });
+        } catch {
           break;
         }
-        const response = await this.processQuery(message);
-        console.log("\n" + response);
+
+        if (message.toLowerCase() === "quit") break;
+
+        try {
+          const response = await this.processQuery(message);
+          console.log("\n" + response);
+        } catch (e) {
+          console.log(`\nError: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     } finally {
+      process.off("SIGINT", onSigint);
+      rl.off("close", onClose);
       rl.close();
     }
   }
