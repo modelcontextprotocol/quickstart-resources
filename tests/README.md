@@ -7,9 +7,11 @@ This directory contains smoke tests for the MCP quickstart examples. These tests
 The smoke tests verify:
 
 - **Servers**: Each weather server (Python, TypeScript, Rust, Go) can start, respond to MCP protocol requests, and honour the output schemas it advertises
-- **Clients**: The Python and TypeScript MCP clients can connect to a mock server and list tools
+- **Clients**: The Python, TypeScript and Ruby MCP clients can connect to a mock server and list tools
 
-The Go and Rust clients are not covered here: on `main` both abort when no `.env` file is present, so they cannot be driven without credentials. Making them start credential-free is a change in their own directories, so their coverage lands with those changes rather than here. The Ruby examples are not covered either — the `mcp` gem cannot negotiate protocol revision `2026-07-28`.
+The Go and Rust clients are not covered here: on `main` both abort when no `.env` file is present, so they cannot be driven without credentials. Making them start credential-free is a change in their own directories, so their coverage lands with those changes rather than here.
+
+The Ruby **weather server** is not covered, for an upstream reason rather than a local one. The `mcp` gem negotiates `2026-07-28`, but its server never emits the `resultType` field that revision makes mandatory, so the test client rejects its responses — including `tools/list`. That is a fix for the gem, not something an example can work around. The Ruby **client** is covered: there it is the gem's client code that runs, and the server it is pointed at is the mock.
 
 ## Structured content
 
@@ -37,6 +39,8 @@ Tool calls reach the live NWS API. When it is unreachable the tools return an er
 - **Rust** stable
 - **Cargo** (for Rust builds)
 - **Go** 1.25+
+- **Ruby** 3.4+ (3.2 and 3.3 satisfy the gems, but 3.2 is past end of life)
+- **Bundler** (ships with Ruby 3.x)
 
 ## How It Works
 
@@ -111,6 +115,9 @@ nvm install 24
 
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Ruby (via rbenv)
+rbenv install 3.4
 ```
 
 ## Adding New Tests

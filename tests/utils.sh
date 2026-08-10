@@ -138,3 +138,16 @@ ensure_built() {
         run_build "go build in ${dir}" go build -o "server$(exe_suffix)" . || return 1
     fi
 }
+
+# Ensure a Ruby project directory has its gems installed.
+#
+# Unlike ensure_built there is no artefact to test for -- a Ruby example has no
+# build step and Gemfile.lock is gitignored -- so ask Bundler directly.
+ensure_bundled() {
+    local dir=$1
+    cd "${dir}" || return 1
+
+    if ! bundle check >/dev/null 2>&1; then
+        run_build "bundle install in ${dir}" bundle install || return 1
+    fi
+}
