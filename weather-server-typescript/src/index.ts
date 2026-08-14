@@ -82,7 +82,7 @@ const forecastOutputSchema = z.object({
     .array(
       z.object({
         name: z.string(),
-        temperature: z.number(),
+        temperature: z.number().nullable(),
         temperature_unit: z.string(),
         wind_speed: z.string(),
         wind_direction: z.string(),
@@ -110,7 +110,9 @@ function formatAlert(alert: Alert): string {
 function formatPeriod(period: Forecast["periods"][number]): string {
   return [
     `${period.name}:`,
-    `Temperature: ${period.temperature}°${period.temperature_unit}`,
+    period.temperature === null
+      ? "Temperature: Unknown"
+      : `Temperature: ${period.temperature}°${period.temperature_unit}`,
     `Wind: ${period.wind_speed} ${period.wind_direction}`,
     period.detailed_forecast,
     "---",
@@ -218,10 +220,10 @@ function buildServer(): McpServer {
         // Only show the next 5 periods.
         periods: rawPeriods.slice(0, 5).map((period) => ({
           name: period.name ?? "Unknown",
-          temperature: period.temperature ?? 0,
+          temperature: period.temperature ?? null,
           temperature_unit: period.temperatureUnit ?? "F",
           wind_speed: period.windSpeed ?? "Unknown",
-          wind_direction: period.windDirection ?? "",
+          wind_direction: period.windDirection ?? "Unknown",
           detailed_forecast: period.detailedForecast ?? "No forecast available",
         })),
       };
@@ -238,5 +240,9 @@ function buildServer(): McpServer {
 }
 
 // One factory serves both protocol eras.
-serveStdio(buildServer);
+serveStdio(buildServer, {
+  onerror: (error) => {
+    console.error("Weather MCP Server error:", error);
+  },
+});
 console.error("Weather MCP Server running on stdio");
