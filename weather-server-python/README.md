@@ -4,7 +4,7 @@ See the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build
 
 ## Structured content
 
-Both tools declare an output schema and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/draft/server/tools#structured-content) in the spec.
+Both tools declare an output schema and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
 
 `Alerts` is a `RootModel[list[Alert]]` rather than a plain `list[Alert]` because the SDK wraps non-object return types as `{"result": ...}`; a `RootModel` is taken as the schema exactly as written. See [Structured Output](https://py.sdk.modelcontextprotocol.io/v2/servers/structured-output/) in the SDK docs.
 
