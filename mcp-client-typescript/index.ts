@@ -7,15 +7,15 @@ import {
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import readline from "readline/promises";
 
 import dotenv from "dotenv";
 
 dotenv.config(); // load environment variables from .env
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const ANTHROPIC_MODEL = "claude-sonnet-5";
 const MAX_TOOL_TURNS = 10;
 
 class MCPClient {
@@ -25,8 +25,12 @@ class MCPClient {
   private tools: Tool[] = [];
 
   constructor() {
-    // Initialize MCP client
-    this.mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
+    // 'auto' probes server/discover, falling back to the 2025-11-25 handshake.
+    // The SDK's default is 'legacy'.
+    this.mcp = new Client(
+      { name: "mcp-client-cli", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
   }
 
   private get anthropic(): Anthropic {
@@ -123,14 +127,25 @@ class MCPClient {
         finalText.push(
           `[Calling tool ${toolUse.name} with args ${JSON.stringify(toolArgs)}]`,
         );
+        // callTool validates the result against the declared schema.
         const result = await this.mcp.callTool({
           name: toolUse.name,
           arguments: toolArgs,
         });
+
+        // structuredContent is data the application can use directly.
+        if (Array.isArray(result.structuredContent)) {
+          finalText.push(
+            `[${toolUse.name} returned ${result.structuredContent.length} items]`,
+          );
+        }
+
+        // content is what the model reads.
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
           content: result.content as ToolResultBlockParam["content"],
+          is_error: result.isError === true,
         });
       }
 
