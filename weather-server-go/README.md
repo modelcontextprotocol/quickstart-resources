@@ -20,7 +20,7 @@ The server will communicate via stdio and expose two MCP tools:
 
 ## Structured content
 
-Both tools advertise an `outputSchema` and return `StructuredContent`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/draft/server/tools#structured-content) in the spec.
+Both tools advertise an `outputSchema` and return `StructuredContent`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
 
 `get_forecast` sets no `OutputSchema` on the `Tool`: the SDK infers one from the handler's return type, which is the idiomatic Go spelling. `get_alerts` overrides it, because inference widens a slice to `["null", "array"]` — a nil slice marshals to `null` — and the tool never returns nil.
 
