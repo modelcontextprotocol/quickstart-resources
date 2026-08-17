@@ -4,7 +4,7 @@ See the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build
 
 ## Structured content
 
-Both tools declare an `output_schema` and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/draft/server/tools#structured-content) in the spec.
+Both tools declare an `output_schema` and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
 
 Declaring `type:` at the root of an `output_schema` is what makes the array case work. The SDK applies a `type: "object"` default only when the schema declares no root keyword, so `output_schema(type: "array", items: {...})` is taken as written.
 
