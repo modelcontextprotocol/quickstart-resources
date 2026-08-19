@@ -84,11 +84,15 @@ test_weather_server_go() {
     node "${TEST_CLIENT}" "${server_bin}"
 }
 
+# The client tests drive the no-API-key path, where each client prints a notice
+# and exits. Empty rather than unset: dotenv skips a name already present in
+# ENV, so a key in the environment or a local .env would start the chat loop.
+
 # Test: Python MCP client
 test_mcp_client_python() {
     check_dependency uv || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-python"
-    uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}" >/dev/null 2>&1
+    ANTHROPIC_API_KEY= uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Test: TypeScript MCP client
@@ -97,7 +101,7 @@ test_mcp_client_typescript() {
     check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
     ensure_built "${client_dir}" || return 1
-    node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
+    ANTHROPIC_API_KEY= node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Test: Ruby MCP client
@@ -106,7 +110,7 @@ test_mcp_client_ruby() {
     check_dependency bundle || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-ruby"
     ensure_bundled "${client_dir}" || return 1
-    (cd "${client_dir}" && bundle exec ruby client.rb "${MOCK_SERVER}") >/dev/null 2>&1
+    (cd "${client_dir}" && ANTHROPIC_API_KEY= bundle exec ruby client.rb "${MOCK_SERVER}") >/dev/null 2>&1
 }
 
 # Run all tests

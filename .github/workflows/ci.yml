@@ -41,8 +41,8 @@ jobs:
         with:
           go-version: "1.25"
 
-      # 3.4 is the oldest series still supported; 3.2 reached end of life in
-      # March 2026.
+      # 3.4 is the current stable series. 3.3 is supported until March 2027; 3.2
+      # reached end of life in March 2026.
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
