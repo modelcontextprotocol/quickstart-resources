@@ -84,10 +84,6 @@ test_weather_server_go() {
     node "${TEST_CLIENT}" "${server_bin}"
 }
 
-# The client tests drive the no-API-key path, where each client prints a notice
-# and exits. Empty rather than unset: dotenv skips a name already present in
-# ENV, so a key in the environment or a local .env would start the chat loop.
-
 # Test: Ruby weather server
 test_weather_server_ruby() {
     check_dependency ruby || return 1
@@ -96,6 +92,10 @@ test_weather_server_ruby() {
     ensure_bundled "${server_dir}" || return 1
     (cd "${server_dir}" && node "${TEST_CLIENT}" bundle exec ruby weather.rb)
 }
+
+# The client tests drive the no-API-key path, where each client prints a notice
+# and exits. Empty rather than unset: dotenv skips a name already present in
+# ENV, so a key in the environment or a local .env would start the chat loop.
 
 # Test: Python MCP client
 test_mcp_client_python() {

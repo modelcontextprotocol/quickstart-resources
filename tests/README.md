@@ -6,12 +6,10 @@ This directory contains smoke tests for the MCP quickstart examples. These tests
 
 The smoke tests verify:
 
-- **Servers**: Each weather server (Python, TypeScript, Rust, Go) can start, respond to MCP protocol requests, and honour the output schemas it advertises
+- **Servers**: Each weather server (Python, TypeScript, Rust, Go, Ruby) can start, respond to MCP protocol requests, and honour the output schemas it advertises
 - **Clients**: The Python, TypeScript and Ruby MCP clients can connect to a mock server and list tools
 
 The Go and Rust clients are not covered here: on `main` both abort when no `.env` file is present, so they cannot be driven without credentials. Making them start credential-free is a change in their own directories, so their coverage lands with those changes rather than here.
-
-The Ruby **weather server** is not covered, for an upstream reason rather than a local one. The `mcp` gem negotiates `2026-07-28`, but its server never emits the `resultType` field that revision makes mandatory, so the test client rejects its responses — including `tools/list`. That is a fix for the gem, not something an example can work around. The Ruby **client** is covered: there it is the gem's client code that runs, and the server it is pointed at is the mock.
 
 ## Structured content
 
