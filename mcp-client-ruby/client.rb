@@ -30,6 +30,13 @@ class MCPClient
     @mcp_client = MCP::Client.new(transport: @transport)
     @mcp_client.connect
 
+    # The spec says clients SHOULD validate structured results against the
+    # schema the tool declares. This SDK's client does not do it, so compile
+    # each declared schema once here and check results as they arrive.
+    @output_schemas = @mcp_client.tools.each_with_object({}) do |tool, schemas|
+      schemas[tool.name] = MCP::Tool::OutputSchema.new(tool.output_schema) if tool.output_schema
+    end
+
     tool_names = @mcp_client.tools.map(&:name)
     puts "\nConnected to server with tools: #{tool_names}"
   end
@@ -96,6 +103,15 @@ class MCPClient
         result = @mcp_client.call_tool(name: content.name, arguments: content.input)
         response_parts << "[Calling tool #{content.name} with args #{content.input.to_json}]"
 
+        # structured_content is data the application can use directly; when a
+        # tool returns an array, count its items rather than re-reading prose.
+        structured = result.dig("result", "structuredContent")
+        unless result.dig("result", "isError")
+          @output_schemas[content.name]&.validate_result(structured)
+          response_parts << "[#{content.name} returned #{structured.length} items]" if structured.is_a?(Array)
+        end
+
+        # content is what the model reads.
         tool_result_content = result.dig("result", "content")
         result_text = if tool_result_content.is_a?(Array)
           tool_result_content.filter_map { |content_item| content_item["text"] }.join("\n")
