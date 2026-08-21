@@ -84,11 +84,24 @@ test_weather_server_go() {
     node "${TEST_CLIENT}" "${server_bin}"
 }
 
+# Test: Ruby weather server
+test_weather_server_ruby() {
+    check_dependency ruby || return 1
+    check_dependency bundle || return 1
+    local server_dir="${PROJECT_ROOT}/weather-server-ruby"
+    ensure_bundled "${server_dir}" || return 1
+    (cd "${server_dir}" && node "${TEST_CLIENT}" bundle exec ruby weather.rb)
+}
+
+# The client tests drive the no-API-key path, where each client prints a notice
+# and exits. Empty rather than unset: dotenv skips a name already present in
+# ENV, so a key in the environment or a local .env would start the chat loop.
+
 # Test: Python MCP client
 test_mcp_client_python() {
     check_dependency uv || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-python"
-    uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}" >/dev/null 2>&1
+    ANTHROPIC_API_KEY= uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Test: TypeScript MCP client
@@ -97,22 +110,34 @@ test_mcp_client_typescript() {
     check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
     ensure_built "${client_dir}" || return 1
-    node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
+    ANTHROPIC_API_KEY= node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
+}
+
+# Test: Ruby MCP client
+test_mcp_client_ruby() {
+    check_dependency ruby || return 1
+    check_dependency bundle || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-ruby"
+    ensure_bundled "${client_dir}" || return 1
+    (cd "${client_dir}" && ANTHROPIC_API_KEY= bundle exec ruby client.rb "${MOCK_SERVER}") >/dev/null 2>&1
 }
 
 # Run all tests
 #
-# All four servers are covered. The Go and Rust clients are not: on main both
-# abort when no .env file is present, so they cannot be driven without
-# credentials. Making them start credential-free is a change in their own
-# directories, so their coverage lands with those changes rather than here.
+# The Go and Rust clients are not covered: on main both abort when no .env file
+# is present, so they cannot be driven without credentials. Making them start
+# credential-free is a change in their own directories, so their coverage lands
+# with those changes rather than here.
+
 print_header "Running smoke tests"
 run_test "weather-server-python" test_weather_server_python
 run_test "weather-server-typescript" test_weather_server_typescript
 run_test "weather-server-rust" test_weather_server_rust
 run_test "weather-server-go" test_weather_server_go
+run_test "weather-server-ruby" test_weather_server_ruby
 run_test "mcp-client-python" test_mcp_client_python
 run_test "mcp-client-typescript" test_mcp_client_typescript
+run_test "mcp-client-ruby" test_mcp_client_ruby
 
 # Print summary
 echo ""
