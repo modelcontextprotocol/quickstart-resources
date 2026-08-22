@@ -6,7 +6,7 @@ require "json"
 require "mcp"
 
 class MCPClient
-  ANTHROPIC_MODEL = "claude-sonnet-4-5"
+  ANTHROPIC_MODEL = "claude-sonnet-5"
 
   def initialize
     @mcp_client = nil
