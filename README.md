@@ -1,6 +1,6 @@
 # MCP Quickstart Resources
 
-Example servers and clients for the [Model Context Protocol](https://modelcontextprotocol.io) (MCP), in five languages. These are the companion repositories for two official tutorials:
+Example servers and clients for the [Model Context Protocol](https://modelcontextprotocol.io) (MCP), in five languages. These are companion examples for two official tutorials:
 
 - [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build-server) – a simple MCP weather server exposing two tools backed by the US National Weather Service API
 - [Build an MCP client](https://modelcontextprotocol.io/docs/develop/build-client) – an LLM-powered chatbot MCP client that connects to any stdio server and lets Claude call its tools
@@ -25,7 +25,7 @@ Note: These example clients need an `ANTHROPIC_API_KEY` to operate. Without a ke
 
 You can mix and match across languages: for example, the Python client can drive the TypeScript server. Each client's README lists which server launch forms it supports.
 
-The [`tests`](./tests) directory contains the smoke tests that run in CI against every example. See [`tests/README.md`](./tests/README.md) for how they work.
+The [`tests`](./tests) directory contains the smoke tests that run in CI against these examples. See [`tests/README.md`](./tests/README.md) for how they work.
 
 ## Prerequisites
 
