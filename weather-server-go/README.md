@@ -1,22 +1,29 @@
 # A Simple MCP Weather Server written in Go
 
-See the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build-server) tutorial for more information.
+A minimal MCP server that exposes US weather data from the [National Weather Service API](https://www.weather.gov/documentation/services-web-api) as two tools:
 
-## Building
+- `get_forecast` – get the forecast for a location (takes `latitude` and `longitude`)
+- `get_alerts` – get active weather alerts for a US state (takes a two-letter state code)
+
+This example accompanies the [Build an MCP server](https://modelcontextprotocol.io/docs/develop/build-server) tutorial.
+
+## Prerequisites
+
+- Go 1.25+
+
+## Build and run
 
 ```bash
 go build -o weather
-```
-
-## Running
-
-```bash
 ./weather
 ```
 
-The server will communicate via stdio and expose two MCP tools:
-- `get_forecast` - Get weather forecast for a location (requires latitude and longitude)
-- `get_alerts` - Get weather alerts for a US state (requires two-letter state code)
+The server communicates over stdio, so running it directly just waits for a client on stdin. To see it in action, launch it from one of the client examples in this repository, for example:
+
+```bash
+cd ../mcp-client-go
+go run main.go ../weather-server-go/weather
+```
 
 ## Structured content
 
