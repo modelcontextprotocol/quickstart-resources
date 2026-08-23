@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+# The job only checks out code and runs tests, so a read-only token suffices.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
