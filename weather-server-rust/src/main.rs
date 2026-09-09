@@ -234,11 +234,11 @@ impl Weather {
     async fn get_forecast(
         &self,
         Parameters(MCPForecastRequest {
-            latitude,
-            longitude,
+            latitude: lat,
+            longitude: lon,
         }): Parameters<MCPForecastRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let points_url = format!("{NWS_API_BASE}/points/{latitude},{longitude}");
+        let points_url = format!("{NWS_API_BASE}/points/{lat},{lon}");
         let Ok(points_data) = make_nws_request::<PointsResponse>(&points_url).await else {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Unable to fetch forecast data for this location.",
@@ -253,8 +253,8 @@ impl Weather {
         };
 
         let forecast = Forecast {
-            latitude,
-            longitude,
+            latitude: lat,
+            longitude: lon,
             periods: forecast_data
                 .properties
                 .periods
