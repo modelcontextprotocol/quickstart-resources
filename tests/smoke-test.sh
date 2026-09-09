@@ -122,6 +122,37 @@ test_mcp_client_ruby() {
     (cd "${client_dir}" && ANTHROPIC_API_KEY= bundle exec ruby client.rb "${MOCK_SERVER}") >/dev/null 2>&1
 }
 
+# Test: Go MCP client
+test_mcp_client_go() {
+    check_dependency go || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-go"
+    ensure_built "${client_dir}" mcp-client-go || return 1
+
+    local client_bin
+    client_bin=$(resolve_binary "${client_dir}/mcp-client-go") || {
+        print_error "no mcp-client-go binary found in ${client_dir}"
+        return 1
+    }
+
+    ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
+}
+
+# Test: Rust MCP client
+test_mcp_client_rust() {
+    check_dependency cargo || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-rust"
+    ensure_built "${client_dir}" mcp-client-rust || return 1
+
+    local client_bin
+    client_bin=$(resolve_binary "${client_dir}/target/release/mcp-client-rust" \
+        || resolve_binary "${client_dir}/target/debug/mcp-client-rust") || {
+        print_error "no mcp-client-rust binary found in ${client_dir}/target"
+        return 1
+    }
+
+    ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
+}
+
 # Run all tests
 
 print_header "Running smoke tests"
