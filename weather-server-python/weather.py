@@ -2,6 +2,7 @@ from typing import Any
 
 import httpx2
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field, RootModel
 
 # Initialize the MCP server
@@ -74,7 +75,7 @@ async def get_alerts(state: str) -> Alerts:
     data = await make_nws_request(url)
 
     if not data or "features" not in data:
-        raise ValueError(f"Unable to fetch alerts for {state.upper()}.")
+        raise ToolError(f"Unable to fetch alerts for {state.upper()}.")
 
     # An empty result is an empty array, not an error.
     #
@@ -107,18 +108,18 @@ async def get_forecast(latitude: float, longitude: float) -> Forecast:
     points_data = await make_nws_request(points_url)
 
     if not points_data:
-        raise ValueError("Unable to fetch forecast data for this location.")
+        raise ToolError("Unable to fetch forecast data for this location.")
 
     # Get the forecast URL from the points response
     forecast_url = points_data["properties"]["forecast"]
     forecast_data = await make_nws_request(forecast_url)
 
     if not forecast_data:
-        raise ValueError("Unable to fetch detailed forecast.")
+        raise ToolError("Unable to fetch detailed forecast.")
 
     periods = forecast_data["properties"]["periods"][:5]  # Only show next 5 periods
     if not periods:
-        raise ValueError("No forecast periods available.")
+        raise ToolError("No forecast periods available.")
 
     return Forecast(
         latitude=latitude,
