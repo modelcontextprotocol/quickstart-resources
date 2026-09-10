@@ -11,13 +11,13 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.36.3",
+    "@anthropic-ai/sdk": "^0.124.0",
     "@modelcontextprotocol/client": "^2.0.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
-    "@types/node": "^22.13.4",
-    "typescript": "^5.7.3"
+    "@types/node": "^24.13.4",
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=24.0.0"

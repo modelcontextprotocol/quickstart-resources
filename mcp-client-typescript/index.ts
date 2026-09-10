@@ -1,11 +1,4 @@
-import { Anthropic } from "@anthropic-ai/sdk";
-import {
-  ContentBlockParam,
-  MessageParam,
-  Tool,
-  ToolResultBlockParam,
-  ToolUseBlock,
-} from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import Anthropic from "@anthropic-ai/sdk";
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -13,7 +6,7 @@ import readline from "readline/promises";
 
 import dotenv from "dotenv";
 
-dotenv.config(); // load environment variables from .env
+dotenv.config({ quiet: true }); // load environment variables from .env
 
 const ANTHROPIC_MODEL = "claude-sonnet-5";
 const MAX_TOOL_TURNS = 10;
@@ -22,7 +15,7 @@ class MCPClient {
   private mcp: Client;
   private _anthropic: Anthropic | null = null;
   private transport: StdioClientTransport | null = null;
-  private tools: Tool[] = [];
+  private tools: Anthropic.Tool[] = [];
 
   constructor() {
     // 'auto' probes server/discover, falling back to the 2025-11-25 handshake.
@@ -90,7 +83,7 @@ class MCPClient {
      * @param query - The user's input query
      * @returns Processed response as a string
      */
-    const messages: MessageParam[] = [
+    const messages: Anthropic.MessageParam[] = [
       {
         role: "user",
         content: query,
@@ -107,7 +100,7 @@ class MCPClient {
     const finalText: string[] = [];
 
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-      const toolUses: ToolUseBlock[] = [];
+      const toolUses: Anthropic.ToolUseBlock[] = [];
 
       for (const block of response.content) {
         if (block.type === "text") {
@@ -121,7 +114,7 @@ class MCPClient {
         return finalText.join("\n");
       }
 
-      const toolResults: ToolResultBlockParam[] = [];
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const toolUse of toolUses) {
         const toolArgs = toolUse.input as { [x: string]: unknown } | undefined;
         finalText.push(
@@ -144,14 +137,14 @@ class MCPClient {
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: result.content as ToolResultBlockParam["content"],
+          content: result.content as Anthropic.ToolResultBlockParam["content"],
           is_error: result.isError === true,
         });
       }
 
       messages.push({
         role: "assistant",
-        content: response.content as unknown as ContentBlockParam[],
+        content: response.content as unknown as Anthropic.ContentBlockParam[],
       });
       messages.push({ role: "user", content: toolResults });
 
