@@ -6,7 +6,6 @@ from pathlib import Path
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from mcp import Client, StdioServerParameters
-from mcp.client.stdio import stdio_client
 from mcp_types import TextContent
 
 load_dotenv()  # load environment variables from .env
@@ -54,10 +53,9 @@ class MCPClient:
         else:
             server_params = StdioServerParameters(command="node", args=[server_script_path], env=None)
 
+        # Client launches the command itself when given StdioServerParameters.
         # "auto" probes server/discover, falling back to the 2025-11-25 handshake.
-        self.client = await self.exit_stack.enter_async_context(
-            Client(stdio_client(server_params), mode="auto")
-        )
+        self.client = await self.exit_stack.enter_async_context(Client(server_params, mode="auto"))
 
         # List available tools
         response = await self.client.list_tools()
@@ -106,9 +104,7 @@ class MCPClient:
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_use.id,
-                        "content": "\n".join(
-                            block.text for block in result.content if isinstance(block, TextContent)
-                        ),
+                        "content": "\n".join(block.text for block in result.content if isinstance(block, TextContent)),
                         "is_error": bool(result.is_error),
                     }
                 )
