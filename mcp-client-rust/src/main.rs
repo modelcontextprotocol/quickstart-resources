@@ -253,7 +253,9 @@ async fn main() -> Result<()> {
         // does. Matching the Python and TypeScript clients, report and exit
         // rather than failing, so the connection itself can be exercised
         // without a key.
-        if std::env::var("ANTHROPIC_API_KEY").is_err() {
+        // Empty counts as unset, as it does in the other clients: `KEY= cmd`
+        // is how the smoke test forces this path.
+        if std::env::var("ANTHROPIC_API_KEY").map_or(true, |key| key.is_empty()) {
             println!("\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:");
             println!("  export ANTHROPIC_API_KEY=your-api-key-here");
             return Ok(());

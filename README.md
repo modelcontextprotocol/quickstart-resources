@@ -43,7 +43,7 @@ Each example only needs its own language toolchain. To work across the whole rep
 ./tests/smoke-test.sh
 ```
 
-The smoke tests verify that every server starts and answers MCP requests (including validating structured tool results against the schemas each tool advertises), and that the Python, TypeScript, and Ruby clients can connect to a mock server and list tools. They run automatically on every pull request via GitHub Actions.
+The smoke tests verify that every server starts and answers MCP requests (including validating structured tool results against the schemas each tool advertises), and that every client can connect to a mock server and list tools. They run automatically on every pull request via GitHub Actions.
 
 ## Contributing
 

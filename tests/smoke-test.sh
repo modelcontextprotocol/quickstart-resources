@@ -48,7 +48,7 @@ test_weather_server_typescript() {
     check_dependency node || return 1
     check_dependency npm || return 1
     local server_dir="${PROJECT_ROOT}/weather-server-typescript"
-    ensure_built "${server_dir}" || return 1
+    ensure_built "${server_dir}" "" || return 1
     node "${TEST_CLIENT}" node "${server_dir}/build/index.js"
 }
 
@@ -56,7 +56,7 @@ test_weather_server_typescript() {
 test_weather_server_rust() {
     check_dependency cargo || return 1
     local server_dir="${PROJECT_ROOT}/weather-server-rust"
-    ensure_built "${server_dir}" || return 1
+    ensure_built "${server_dir}" weather || return 1
 
     # Determine which binary to use
     local server_bin
@@ -73,7 +73,7 @@ test_weather_server_rust() {
 test_weather_server_go() {
     check_dependency go || return 1
     local server_dir="${PROJECT_ROOT}/weather-server-go"
-    ensure_built "${server_dir}" || return 1
+    ensure_built "${server_dir}" server || return 1
 
     local server_bin
     server_bin=$(resolve_binary "${server_dir}/server") || {
@@ -109,7 +109,7 @@ test_mcp_client_typescript() {
     check_dependency node || return 1
     check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
-    ensure_built "${client_dir}" || return 1
+    ensure_built "${client_dir}" "" || return 1
     ANTHROPIC_API_KEY= node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
@@ -122,12 +122,38 @@ test_mcp_client_ruby() {
     (cd "${client_dir}" && ANTHROPIC_API_KEY= bundle exec ruby client.rb "${MOCK_SERVER}") >/dev/null 2>&1
 }
 
+# Test: Go MCP client
+test_mcp_client_go() {
+    check_dependency go || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-go"
+    ensure_built "${client_dir}" mcp-client-go || return 1
+
+    local client_bin
+    client_bin=$(resolve_binary "${client_dir}/mcp-client-go") || {
+        print_error "no mcp-client-go binary found in ${client_dir}"
+        return 1
+    }
+
+    ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
+}
+
+# Test: Rust MCP client
+test_mcp_client_rust() {
+    check_dependency cargo || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-rust"
+    ensure_built "${client_dir}" mcp-client-rust || return 1
+
+    local client_bin
+    client_bin=$(resolve_binary "${client_dir}/target/release/mcp-client-rust" \
+        || resolve_binary "${client_dir}/target/debug/mcp-client-rust") || {
+        print_error "no mcp-client-rust binary found in ${client_dir}/target"
+        return 1
+    }
+
+    ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
+}
+
 # Run all tests
-#
-# The Go and Rust clients are not covered: on main both abort when no .env file
-# is present, so they cannot be driven without credentials. Making them start
-# credential-free is a change in their own directories, so their coverage lands
-# with those changes rather than here.
 
 print_header "Running smoke tests"
 run_test "weather-server-python" test_weather_server_python
@@ -138,6 +164,8 @@ run_test "weather-server-ruby" test_weather_server_ruby
 run_test "mcp-client-python" test_mcp_client_python
 run_test "mcp-client-typescript" test_mcp_client_typescript
 run_test "mcp-client-ruby" test_mcp_client_ruby
+run_test "mcp-client-go" test_mcp_client_go
+run_test "mcp-client-rust" test_mcp_client_rust
 
 # Print summary
 echo ""

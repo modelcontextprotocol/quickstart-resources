@@ -7,9 +7,7 @@ This directory contains smoke tests for the MCP quickstart examples. These tests
 The smoke tests verify:
 
 - **Servers**: Each weather server (Python, TypeScript, Rust, Go, Ruby) can start, respond to MCP protocol requests, and honour the output schemas it advertises
-- **Clients**: The Python, TypeScript and Ruby MCP clients can connect to a mock server and list tools
-
-The Go and Rust clients are not covered here: on `main` both abort when no `.env` file is present, so they cannot be driven without credentials. Making them start credential-free is a change in their own directories, so their coverage lands with those changes rather than here.
+- **Clients**: Each MCP client (Python, TypeScript, Ruby, Go, Rust) can connect to a mock server and list tools
 
 ## Structured content
 
@@ -63,6 +61,8 @@ Each client test:
 5. Reports pass/fail
 
 **Note**: Client tests run the actual CLI programs without an Anthropic API key. The clients are designed to handle missing API keys gracefully by listing available tools and exiting, which is perfect for smoke testing the MCP connectivity without requiring external API calls.
+
+The key is set to the empty string rather than unset. Every client loads `.env` without overriding variables already in the environment, so an empty value keeps a developer's local `.env` from starting the chat loop, and every client treats an empty key the same as a missing one.
 
 ## Test Helpers
 

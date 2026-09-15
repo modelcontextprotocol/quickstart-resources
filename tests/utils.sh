@@ -109,11 +109,16 @@ run_build() {
 
 # Ensure a project directory is built (TypeScript/Rust/Go)
 #
+# `bin` is the name of the binary a Rust or Go project produces (unused for
+# TypeScript). Rust names it after the package, so it is looked for under
+# target/; Go is told to write it to `bin` in the project directory.
+#
 # Returns rather than exits, for the same reason check_dependency does: one
 # project failing to build should fail its own test, not abort the suite
 # before the summary is printed.
 ensure_built() {
     local dir=$1
+    local bin=$2
     cd "${dir}" || return 1
 
     # Install npm dependencies if needed
@@ -128,14 +133,14 @@ ensure_built() {
 
     # Build Rust if needed
     if [ -f "Cargo.toml" ] \
-        && ! resolve_binary "target/release/weather" >/dev/null \
-        && ! resolve_binary "target/debug/weather" >/dev/null; then
+        && ! resolve_binary "target/release/${bin}" >/dev/null \
+        && ! resolve_binary "target/debug/${bin}" >/dev/null; then
         run_build "cargo build in ${dir}" cargo build --release || return 1
     fi
 
     # Build Go if needed
-    if [ -f "go.mod" ] && ! resolve_binary "server" >/dev/null; then
-        run_build "go build in ${dir}" go build -o "server$(exe_suffix)" . || return 1
+    if [ -f "go.mod" ] && ! resolve_binary "${bin}" >/dev/null; then
+        run_build "go build in ${dir}" go build -o "${bin}$(exe_suffix)" . || return 1
     fi
 }
 
