@@ -146,7 +146,9 @@ class MCPClient
     final_text.join("\n")
   end
 
-  # Convert a response's content blocks back into request parameters.
+  # Convert a response's content blocks back into request parameters. Thinking
+  # blocks must go back unchanged, signature included, or the API rejects the
+  # follow-up request.
   def assistant_content(response)
     response.content.filter_map do |block|
       case block
@@ -154,6 +156,10 @@ class MCPClient
         { type: "text", text: block.text }
       when Anthropic::Models::ToolUseBlock
         { type: "tool_use", id: block.id, name: block.name, input: block.input }
+      when Anthropic::Models::ThinkingBlock
+        { type: "thinking", thinking: block.thinking, signature: block.signature }
+      when Anthropic::Models::RedactedThinkingBlock
+        { type: "redacted_thinking", data: block.data }
       end
     end
   end

@@ -104,6 +104,13 @@ function scenarioOf(messages: Message[]): Scenario | undefined {
   return undefined;
 }
 
+const THINKING: Block = {
+  type: "thinking",
+  thinking: "Two lookups are needed.",
+  signature: "test-signature",
+};
+const REDACTED_THINKING: Block = { type: "redacted_thinking", data: "test-redacted-data" };
+
 function toolUse(id: string, name: string, input: Record<string, unknown>): Block {
   return { type: "tool_use", id, name, input };
 }
@@ -121,7 +128,10 @@ function respondParallel(n: number, request: Request): Block[] {
 
   if (n === 1) {
     check(messages.length === 1 && last.role === "user", `${label}: history is the user query`);
+    // Thinking comes before the tool calls, as it does from the real model.
     return [
+      THINKING,
+      REDACTED_THINKING,
       text("Checking two things."),
       toolUse("tu_1", "get_alerts", { state: "CA" }),
       toolUse("tu_2", "get_forecast", { latitude: 38.58, longitude: -121.49 }),
@@ -131,6 +141,19 @@ function respondParallel(n: number, request: Request): Block[] {
   if (n === 2) {
     check(messages.length === 3, `${label}: history has 3 messages (got ${messages.length})`);
     check(messages[1]?.role === "assistant", `${label}: assistant turn is kept in history`);
+    // The API rejects a follow-up whose assistant turn lost its thinking
+    // blocks, so they must be echoed back unchanged.
+    const echoed = Array.isArray(messages[1]?.content) ? messages[1].content : [];
+    const thinking = echoed.find((block) => block.type === "thinking");
+    const redacted = echoed.find((block) => block.type === "redacted_thinking");
+    check(
+      thinking?.thinking === THINKING.thinking && thinking?.signature === THINKING.signature,
+      `${label}: thinking block is passed back with its signature`,
+    );
+    check(
+      redacted?.data === REDACTED_THINKING.data,
+      `${label}: redacted thinking block is passed back`,
+    );
     check(
       last.role === "user" && results.length === 2,
       `${label}: both tool_results arrive in one user message (got ${results.length})`,
@@ -154,11 +177,7 @@ function respondParallel(n: number, request: Request): Block[] {
       results.length === 1 && results[0].tool_use_id === "tu_3",
       `${label}: second-step tool_result is present`,
     );
-    // Rust's genai crate has no is_error field, so that client marks the
-    // text instead; accept either.
-    const flagged = results[0]?.is_error === true;
-    const marked = textOf(results[0]?.content).startsWith("Error:");
-    check(flagged || marked, `${label}: error result is forwarded as an error`);
+    check(results[0]?.is_error === true, `${label}: error result is forwarded as is_error`);
     return [text(FINAL_ANSWER.parallel)];
   }
 
