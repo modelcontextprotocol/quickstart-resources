@@ -76,11 +76,12 @@ setup_test() {
     CLIENT_DIR="${PROJECT_ROOT}/${test_name}"
     TEST_CLIENT="${PROJECT_ROOT}/tests/helpers/build/mcp-test-client.js"
     MOCK_SERVER="${PROJECT_ROOT}/tests/helpers/build/mock-mcp-server.js"
+    TOOL_LOOP_TEST="${PROJECT_ROOT}/tests/helpers/build/tool-loop-test.js"
 }
 
 # Ensure test helpers are built
 ensure_helpers_built() {
-    if [ ! -f "${TEST_CLIENT}" ] || [ ! -f "${MOCK_SERVER}" ]; then
+    if [ ! -f "${TEST_CLIENT}" ] || [ ! -f "${MOCK_SERVER}" ] || [ ! -f "${TOOL_LOOP_TEST}" ]; then
         print_error "Test helpers not built"
         print_header "Building test helpers..."
         cd "${PROJECT_ROOT}/tests/helpers" || return 1
