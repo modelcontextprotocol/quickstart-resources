@@ -8,6 +8,7 @@ The smoke tests verify:
 
 - **Servers**: Each weather server (Python, TypeScript, Rust, Go, Ruby) can start, respond to MCP protocol requests, and honour the output schemas it advertises
 - **Clients**: Each MCP client (Python, TypeScript, Ruby, Go, Rust) can connect to a mock server and list tools
+- **Tool loop**: Each client (Python, TypeScript, Ruby, Go) runs a query through a scripted tool-use loop against a fake Anthropic API and forwards tool results correctly
 
 ## Structured content
 
@@ -19,6 +20,22 @@ Listing tools is not enough to catch a broken structured result, so each server 
 The array case is the one worth guarding. A server that advertises `{"type": "array"}` and then answers `{"result": [...]}` passes a tools/list-only test and fails this one.
 
 Tool calls reach the live NWS API. When it is unreachable the tools return an error result, which the test reports as a skip rather than a failure — someone else's outage should not fail the build.
+
+## Tool loop
+
+Connecting and listing tools does not exercise the chat loop, so each client is also driven through one scripted query with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test.
+
+The fake API scripts one conversation — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then a final answer — and checks every request the client sends:
+
+- `tools` are passed on every call, not only the first;
+- `max_tokens` is 10000, leaving room for the model's adaptive thinking;
+- every `tool_use` gets a `tool_result` in a single following user message, with matching `tool_use_id`s;
+- an MCP `isError` result is forwarded as `is_error`;
+- the client makes exactly three calls, exits 0, and prints the final answer.
+
+A client that does one tool round and stops, drops `tools` on the follow-up call, or sends one `tool_result` per message passes the no-key test and fails this one.
+
+The Rust client is not covered yet. Its `genai` crate reads no environment variable for the endpoint, and it negotiates protocol `2025-11-25`, under which the mock's array-rooted tool is refused at call time.
 
 ## Running Tests
 
@@ -92,6 +109,22 @@ It advertises two tools whose output schemas cover both shapes a structured resu
 
 ```bash
 node tests/helpers/build/mock-mcp-server.js
+```
+
+### tool-loop-test.ts
+
+Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, pipes in one query followed by `quit`, and reports which checks failed along with the client's output.
+
+**Usage**:
+
+```bash
+node tests/helpers/build/tool-loop-test.js <client command> [args...]
+```
+
+**Example**:
+
+```bash
+node tests/helpers/build/tool-loop-test.js node mcp-client-typescript/build/index.js tests/helpers/build/mock-mcp-server.js
 ```
 
 ## CI/CD Integration

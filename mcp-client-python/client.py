@@ -10,7 +10,6 @@ from mcp_types import TextContent
 
 load_dotenv()  # load environment variables from .env
 
-# Claude model constant
 ANTHROPIC_MODEL = "claude-sonnet-5"
 # Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
 # plus the reply, so leave room for both.
@@ -119,6 +118,8 @@ class MCPClient:
                 tools=available_tools,
             )
 
+        # The turn cap was hit. Keep the text of the last response; drop its tool calls.
+        final_text.extend(content.text for content in response.content if content.type == "text")
         final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
         return "\n".join(final_text)
 

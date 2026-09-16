@@ -7,6 +7,10 @@ require "mcp"
 
 class MCPClient
   ANTHROPIC_MODEL = "claude-sonnet-5"
+  # Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
+  # plus the reply, so leave room for both.
+  MAX_TOKENS = 10000
+  MAX_TOOL_TURNS = 10
 
   def initialize
     @mcp_client = nil
@@ -78,40 +82,40 @@ class MCPClient
       { name: tool.name, description: tool.description, input_schema: tool.input_schema }
     end
 
-    # Initial Claude API call.
-    response = chat(messages, tools: available_tools)
+    final_text = []
 
-    # Process response and handle tool calls.
-    if response.content.any?(Anthropic::Models::ToolUseBlock)
-      assistant_content = response.content.filter_map do |content_block|
-        case content_block
+    # Initial Claude API call with tools.
+    response = chat(messages, available_tools)
+
+    # Keep calling tools until Claude answers without one, up to a cap.
+    MAX_TOOL_TURNS.times do
+      tool_uses = []
+      response.content.each do |block|
+        case block
         when Anthropic::Models::TextBlock
-          { type: "text", text: content_block.text }
+          final_text << block.text
         when Anthropic::Models::ToolUseBlock
-          { type: "tool_use", id: content_block.id, name: content_block.name, input: content_block.input }
+          tool_uses << block
         end
       end
-      messages << { role: "assistant", content: assistant_content }
-    end
 
-    response.content.each_with_object([]) do |content, response_parts|
-      case content
-      when Anthropic::Models::TextBlock
-        response_parts << content.text
-      when Anthropic::Models::ToolUseBlock
-        # Execute tool call via MCP.
-        result = @mcp_client.call_tool(name: content.name, arguments: content.input)
-        response_parts << "[Calling tool #{content.name} with args #{content.input.to_json}]"
+      return final_text.join("\n") if tool_uses.empty?
+
+      # Execute every tool call in this response and collect the results.
+      tool_results = tool_uses.map do |tool_use|
+        result = @mcp_client.call_tool(name: tool_use.name, arguments: tool_use.input)
+        final_text << "[Calling tool #{tool_use.name} with args #{tool_use.input.to_json}]"
 
         # structured_content is data the application can use directly; when a
         # tool returns an array, count its items rather than re-reading prose.
+        is_error = result.dig("result", "isError") == true
         structured = result.dig("result", "structuredContent")
-        unless result.dig("result", "isError")
-          @output_schemas[content.name]&.validate_result(structured)
-          response_parts << "[#{content.name} returned #{structured.length} items]" if structured.is_a?(Array)
+        unless is_error
+          @output_schemas[tool_use.name]&.validate_result(structured)
+          final_text << "[#{tool_use.name} returned #{structured.length} items]" if structured.is_a?(Array)
         end
 
-        # content is what the model reads.
+        # content is a list of block types; forward only the text ones.
         tool_result_content = result.dig("result", "content")
         result_text = if tool_result_content.is_a?(Array)
           tool_result_content.filter_map { |content_item| content_item["text"] }.join("\n")
@@ -119,30 +123,45 @@ class MCPClient
           tool_result_content.to_s
         end
 
-        messages << {
-          role: "user",
-          content: [{
-            type: "tool_result",
-            tool_use_id: content.id,
-            content: result_text
-          }]
-        }
-
-        # Get next response from Claude.
-        response = chat(messages)
-
-        response.content.each do |content_block|
-          response_parts << content_block.text if content_block.is_a?(Anthropic::Models::TextBlock)
-        end
+        { type: "tool_result", tool_use_id: tool_use.id, content: result_text, is_error: is_error }
       end
-    end.join("\n")
+
+      # Append the assistant's response and all tool results, in one user
+      # message, to the history. Every tool_use needs a matching tool_result.
+      messages << { role: "assistant", content: assistant_content(response) }
+      messages << { role: "user", content: tool_results }
+
+      response = chat(messages, available_tools)
+    end
+
+    # The turn cap was hit. Keep the text of the last response; drop its tool calls.
+    response.content.each do |block|
+      final_text << block.text if block.is_a?(Anthropic::Models::TextBlock)
+    end
+    final_text << "[Stopped after #{MAX_TOOL_TURNS} tool-use turns]"
+    final_text.join("\n")
   end
 
-  def chat(messages, tools: nil)
-    params = { model: ANTHROPIC_MODEL, max_tokens: 1000, messages: messages }
-    params[:tools] = tools if tools
+  # Convert a response's content blocks back into request parameters.
+  def assistant_content(response)
+    response.content.filter_map do |block|
+      case block
+      when Anthropic::Models::TextBlock
+        { type: "text", text: block.text }
+      when Anthropic::Models::ToolUseBlock
+        { type: "tool_use", id: block.id, name: block.name, input: block.input }
+      end
+    end
+  end
 
-    anthropic_client.messages.create(**params)
+  # Tools are passed on every call so Claude can keep calling them across turns.
+  def chat(messages, tools)
+    anthropic_client.messages.create(
+      model: ANTHROPIC_MODEL,
+      max_tokens: MAX_TOKENS,
+      messages: messages,
+      tools: tools
+    )
   end
 
   def anthropic_client

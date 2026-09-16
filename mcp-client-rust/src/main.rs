@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, bail};
 use genai::Client;
 use genai::chat::{
-    ChatMessage, ChatRequest, ChatResponse, ContentPart, Tool as GenaiTool, ToolResponse,
+    ChatMessage, ChatOptions, ChatRequest, ChatResponse, ContentPart, Tool as GenaiTool,
+    ToolResponse,
 };
 use jsonschema::Validator;
 use rmcp::model::{CallToolRequestParams, CallToolResult, Tool as McpTool};
@@ -13,6 +14,10 @@ use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 const MODEL_ANTHROPIC: &str = "claude-sonnet-5";
+/// Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
+/// plus the reply, so leave room for both.
+const MAX_TOKENS: u32 = 10000;
+const MAX_TOOL_TURNS: usize = 10;
 
 struct MCPClient {
     anthropic: Client,
@@ -103,20 +108,20 @@ impl MCPClient {
         let mut final_text = Vec::new();
 
         // Initial Claude API call with tools
-        let mut chat_req = ChatRequest::new(messages.clone()).with_tools(self.tools.clone());
-        let mut chat_rsp = self.request_model(&chat_req).await?;
+        let mut chat_rsp = self.request_model(&messages).await?;
 
-        // Process response content - collect text and handle tool calls
-        for text in chat_rsp.texts() {
-            final_text.push(text.to_string());
-        }
+        // Keep calling tools until Claude answers without one, up to a cap.
+        for _ in 0..MAX_TOOL_TURNS {
+            for text in chat_rsp.texts() {
+                final_text.push(text.to_string());
+            }
 
-        let tool_calls = chat_rsp.tool_calls();
-        if !tool_calls.is_empty() {
-            // Append assistant's response to message history
-            messages.push(ChatMessage::assistant(chat_rsp.content.clone()));
+            let tool_calls = chat_rsp.tool_calls();
+            if tool_calls.is_empty() {
+                return Ok(final_text.join("\n"));
+            }
 
-            // Execute each tool call and collect responses
+            // Execute every tool call in this response and collect the results
             let mut tool_results = Vec::new();
             for tool_call in tool_calls {
                 // Add information about the tool call to final text
@@ -150,12 +155,18 @@ impl MCPClient {
                 }
 
                 // content is a list of block types; forward only the text ones.
-                let payload = tool_result
+                let mut payload = tool_result
                     .content
                     .iter()
                     .filter_map(|block| block.as_text().map(|text| text.text.as_str()))
                     .collect::<Vec<_>>()
                     .join("\n");
+
+                // genai's ToolResponse cannot set Anthropic's `is_error` flag, so
+                // an error result is marked in the text instead.
+                if tool_result.is_error.unwrap_or(false) {
+                    payload = format!("Error: {payload}");
+                }
 
                 tool_results.push(ContentPart::ToolResponse(ToolResponse::new(
                     tool_call.call_id.clone(),
@@ -163,26 +174,32 @@ impl MCPClient {
                 )));
             }
 
-            // Append tool responses to message history
+            // Append the assistant's response and all tool results, in one user
+            // message, to the history. Every tool call needs a matching result.
+            messages.push(ChatMessage::assistant(chat_rsp.content.clone()));
             messages.push(ChatMessage::user(tool_results));
 
-            // Build the next request and query model
-            chat_req = ChatRequest::new(messages.clone());
-            chat_rsp = self.request_model(&chat_req).await?;
-
-            // Collect text from response
-            for text in chat_rsp.texts() {
-                final_text.push(text.to_string());
-            }
+            chat_rsp = self.request_model(&messages).await?;
         }
+
+        // The turn cap was hit. Keep the text of the last response; drop its tool calls.
+        for text in chat_rsp.texts() {
+            final_text.push(text.to_string());
+        }
+        final_text.push(format!("[Stopped after {MAX_TOOL_TURNS} tool-use turns]"));
 
         Ok(final_text.join("\n"))
     }
 
-    async fn request_model(&self, chat_req: &ChatRequest) -> Result<ChatResponse> {
+    /// Call Claude with the current history. Tools are passed on every call so
+    /// Claude can keep calling them across turns.
+    async fn request_model(&self, messages: &[ChatMessage]) -> Result<ChatResponse> {
+        let chat_req = ChatRequest::new(messages.to_vec()).with_tools(self.tools.clone());
+        let options = ChatOptions::default().with_max_tokens(MAX_TOKENS);
+
         let response = self
             .anthropic
-            .exec_chat(MODEL_ANTHROPIC, chat_req.clone(), None)
+            .exec_chat(MODEL_ANTHROPIC, chat_req, Some(&options))
             .await
             .context("Anthropic chat request failed")?;
 

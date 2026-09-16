@@ -9,6 +9,9 @@ import dotenv from "dotenv";
 dotenv.config({ quiet: true }); // load environment variables from .env
 
 const ANTHROPIC_MODEL = "claude-sonnet-5";
+// Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
+// plus the reply, so leave room for both.
+const MAX_TOKENS = 10000;
 const MAX_TOOL_TURNS = 10;
 
 class MCPClient {
@@ -92,7 +95,7 @@ class MCPClient {
 
     let response = await this.anthropic.messages.create({
       model: ANTHROPIC_MODEL,
-      max_tokens: 1000,
+      max_tokens: MAX_TOKENS,
       messages,
       tools: this.tools,
     });
@@ -133,11 +136,15 @@ class MCPClient {
           );
         }
 
-        // content is what the model reads.
+        // content is a list of block types; forward only the text ones. MCP
+        // and Anthropic block shapes differ, so other kinds need converting.
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: result.content as Anthropic.ToolResultBlockParam["content"],
+          content: result.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("\n"),
           is_error: result.isError === true,
         });
       }
@@ -150,12 +157,18 @@ class MCPClient {
 
       response = await this.anthropic.messages.create({
         model: ANTHROPIC_MODEL,
-        max_tokens: 1000,
+        max_tokens: MAX_TOKENS,
         messages,
         tools: this.tools,
       });
     }
 
+    // The turn cap was hit. Keep the text of the last response; drop its tool calls.
+    for (const block of response.content) {
+      if (block.type === "text") {
+        finalText.push(block.text);
+      }
+    }
     finalText.push(`[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`);
     return finalText.join("\n");
   }
