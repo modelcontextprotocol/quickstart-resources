@@ -118,9 +118,11 @@ class MCPClient:
                 tools=available_tools,
             )
 
-        # The turn cap was hit. Keep the text of the last response; drop its tool calls.
+        # The turn cap was hit. Keep the last response's text. If it asked for
+        # more tools, say they were not run.
         final_text.extend(content.text for content in response.content if content.type == "text")
-        final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
+        if any(content.type == "tool_use" for content in response.content):
+            final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
         return "\n".join(final_text)
 
     async def chat_loop(self):

@@ -243,13 +243,20 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 		}
 	}
 
-	// The turn cap was hit. Keep the text of the last response; drop its tool calls.
+	// The turn cap was hit. Keep the last response's text. If it asked for
+	// more tools, say they were not run.
+	wantsTools := false
 	for _, block := range response.Content {
-		if b, ok := block.AsAny().(anthropic.TextBlock); ok {
+		switch b := block.AsAny().(type) {
+		case anthropic.TextBlock:
 			finalText = append(finalText, b.Text)
+		case anthropic.ToolUseBlock:
+			wantsTools = true
 		}
 	}
-	finalText = append(finalText, fmt.Sprintf("[Stopped after %d tool-use turns]", maxToolTurns))
+	if wantsTools {
+		finalText = append(finalText, fmt.Sprintf("[Stopped after %d tool-use turns]", maxToolTurns))
+	}
 
 	return strings.Join(finalText, "\n"), nil
 }

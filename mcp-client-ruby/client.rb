@@ -53,6 +53,7 @@ class MCPClient
 
     loop do
       print "\nQuery: "
+      $stdout.flush # a pipe is not line-buffered, so show the prompt before waiting
       line = $stdin.gets
       break if line.nil?
 
@@ -134,11 +135,14 @@ class MCPClient
       response = chat(messages, available_tools)
     end
 
-    # The turn cap was hit. Keep the text of the last response; drop its tool calls.
+    # The turn cap was hit. Keep the last response's text. If it asked for
+    # more tools, say they were not run.
     response.content.each do |block|
       final_text << block.text if block.is_a?(Anthropic::Models::TextBlock)
     end
-    final_text << "[Stopped after #{MAX_TOOL_TURNS} tool-use turns]"
+    if response.content.any?(Anthropic::Models::ToolUseBlock)
+      final_text << "[Stopped after #{MAX_TOOL_TURNS} tool-use turns]"
+    end
     final_text.join("\n")
   end
 

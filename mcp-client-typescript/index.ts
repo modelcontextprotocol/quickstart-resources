@@ -163,13 +163,19 @@ class MCPClient {
       });
     }
 
-    // The turn cap was hit. Keep the text of the last response; drop its tool calls.
+    // The turn cap was hit. Keep the last response's text. If it asked for
+    // more tools, say they were not run.
+    let wantsTools = false;
     for (const block of response.content) {
       if (block.type === "text") {
         finalText.push(block.text);
+      } else if (block.type === "tool_use") {
+        wantsTools = true;
       }
     }
-    finalText.push(`[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`);
+    if (wantsTools) {
+      finalText.push(`[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`);
+    }
     return finalText.join("\n");
   }
 

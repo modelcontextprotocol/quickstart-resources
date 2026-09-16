@@ -182,11 +182,14 @@ impl MCPClient {
             chat_rsp = self.request_model(&messages).await?;
         }
 
-        // The turn cap was hit. Keep the text of the last response; drop its tool calls.
+        // The turn cap was hit. Keep the last response's text. If it asked for
+        // more tools, say they were not run.
         for text in chat_rsp.texts() {
             final_text.push(text.to_string());
         }
-        final_text.push(format!("[Stopped after {MAX_TOOL_TURNS} tool-use turns]"));
+        if !chat_rsp.tool_calls().is_empty() {
+            final_text.push(format!("[Stopped after {MAX_TOOL_TURNS} tool-use turns]"));
+        }
 
         Ok(final_text.join("\n"))
     }

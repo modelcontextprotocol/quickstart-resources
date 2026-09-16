@@ -23,17 +23,15 @@ Tool calls reach the live NWS API. When it is unreachable the tools return an er
 
 ## Tool loop
 
-Connecting and listing tools does not exercise the chat loop, so each client is also driven through one scripted query with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test.
+Connecting and listing tools does not exercise the chat loop, so each client is also driven through three scripted queries with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test. The helper types each query only after the client shows its `Query:` prompt, as a person would.
 
-The fake API scripts one conversation — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then a final answer — and checks every request the client sends:
+The fake API picks a script from the query text and checks every request the client sends:
 
-- `tools` are passed on every call, not only the first;
-- `max_tokens` is 10000, leaving room for the model's adaptive thinking;
-- every `tool_use` gets a `tool_result` in a single following user message, with matching `tool_use_id`s;
-- an MCP `isError` result is forwarded as `is_error`;
-- the client makes exactly three calls, exits 0, and prints the final answer.
+- **parallel tools** — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then an answer. `tools` must be passed on every call, `max_tokens` must be 10000 (room for the model's adaptive thinking), every `tool_use` must get a `tool_result` in a single following user message with matching `tool_use_id`s, and the MCP `isError` result must be forwarded as `is_error`.
+- **ten tool turns** — exactly `MAX_TOOL_TURNS` tool calls, then an answer. The client must print the answer and no stop notice: nothing was cut short.
+- **endless tool turns** — a tool call on every response. The client must stop after `MAX_TOOL_TURNS` rounds, print `[Stopped after 10 tool-use turns]` once, and make no further call.
 
-A client that does one tool round and stops, drops `tools` on the follow-up call, or sends one `tool_result` per message passes the no-key test and fails this one.
+Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, or gets the turn cap wrong passes the no-key test and fails this one.
 
 The Rust client is not covered yet. Its `genai` crate reads no environment variable for the endpoint, and it negotiates protocol `2025-11-25`, under which the mock's array-rooted tool is refused at call time.
 
@@ -113,7 +111,7 @@ node tests/helpers/build/mock-mcp-server.js
 
 ### tool-loop-test.ts
 
-Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, pipes in one query followed by `quit`, and reports which checks failed along with the client's output.
+Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the three queries and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
 
 **Usage**:
 
