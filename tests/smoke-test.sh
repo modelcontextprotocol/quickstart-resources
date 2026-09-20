@@ -13,6 +13,7 @@ TESTS_DIR="${PROJECT_ROOT}/tests"
 # Setup common test variables
 TEST_CLIENT="${PROJECT_ROOT}/tests/helpers/build/mcp-test-client.js"
 MOCK_SERVER="${PROJECT_ROOT}/tests/helpers/build/mock-mcp-server.js"
+TOOL_LOOP_TEST="${PROJECT_ROOT}/tests/helpers/build/tool-loop-test.js"
 
 # Track test results
 FAILED_TESTS=()
@@ -153,6 +154,57 @@ test_mcp_client_rust() {
     ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
+# The tool-loop tests drive the chat loop itself, which the no-key tests never
+# reach. The helper starts a fake Anthropic API on a loopback port, points the
+# client at it through ANTHROPIC_BASE_URL, and scripts one query as two
+# parallel tool calls, then a failing one, then an answer. It checks every
+# request the client sends; see tests/README.md for what is checked.
+
+# Test: Python MCP client tool loop
+test_tool_loop_python() {
+    check_dependency uv || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-python"
+    node "${TOOL_LOOP_TEST}" uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}"
+}
+
+# Test: TypeScript MCP client tool loop
+test_tool_loop_typescript() {
+    check_dependency node || return 1
+    check_dependency npm || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
+    ensure_built "${client_dir}" "" || return 1
+    node "${TOOL_LOOP_TEST}" node "${client_dir}/build/index.js" "${MOCK_SERVER}"
+}
+
+# Test: Ruby MCP client tool loop
+test_tool_loop_ruby() {
+    check_dependency ruby || return 1
+    check_dependency bundle || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-ruby"
+    ensure_bundled "${client_dir}" || return 1
+    (cd "${client_dir}" && node "${TOOL_LOOP_TEST}" bundle exec ruby client.rb "${MOCK_SERVER}")
+}
+
+# Test: Go MCP client tool loop
+test_tool_loop_go() {
+    check_dependency go || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-go"
+    ensure_built "${client_dir}" mcp-client-go || return 1
+
+    local client_bin
+    client_bin=$(resolve_binary "${client_dir}/mcp-client-go") || {
+        print_error "no mcp-client-go binary found in ${client_dir}"
+        return 1
+    }
+
+    node "${TOOL_LOOP_TEST}" "${client_bin}" node "${MOCK_SERVER}"
+}
+
+# The Rust client has no tool-loop test yet. Its genai crate reads no
+# environment variable for the API endpoint, so the fake API cannot be reached
+# without adding code to the example, and it negotiates protocol 2025-11-25,
+# under which the mock's array-rooted tool is refused at call time.
+
 # Run all tests
 
 print_header "Running smoke tests"
@@ -166,6 +218,10 @@ run_test "mcp-client-typescript" test_mcp_client_typescript
 run_test "mcp-client-ruby" test_mcp_client_ruby
 run_test "mcp-client-go" test_mcp_client_go
 run_test "mcp-client-rust" test_mcp_client_rust
+run_test "mcp-client-python tool loop" test_tool_loop_python
+run_test "mcp-client-typescript tool loop" test_tool_loop_typescript
+run_test "mcp-client-ruby tool loop" test_tool_loop_ruby
+run_test "mcp-client-go tool loop" test_tool_loop_go
 
 # Print summary
 echo ""

@@ -17,9 +17,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// A string literal rather than an anthropic.Model constant: the pinned SDK
-// version predates this model and has no constant for it.
 var model anthropic.Model = "claude-sonnet-5"
+
+// Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
+// plus the reply, so leave room for both.
+const maxTokens = 10000
+const maxToolTurns = 10
 
 type MCPClient struct {
 	anthropic *anthropic.Client
@@ -166,96 +169,111 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 		anthropic.NewUserMessage(anthropic.NewTextBlock(query)),
 	}
 
+	var finalText []string
+
 	// Initial Claude API call with tools
-	response, err := c.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     model,
-		MaxTokens: 1024,
-		Messages:  messages,
-		Tools:     c.tools,
-	})
+	response, err := c.createMessage(ctx, messages)
 	if err != nil {
-		return "", fmt.Errorf("anthropic API request failed: %w", err)
+		return "", err
 	}
 
-	var toolUseBlocks []anthropic.ToolUseBlock
-	var finalText []string
+	// Keep calling tools until Claude answers without one, up to a cap.
+	for turn := 0; turn < maxToolTurns; turn++ {
+		var toolUseBlocks []anthropic.ToolUseBlock
+		for _, block := range response.Content {
+			switch b := block.AsAny().(type) {
+			case anthropic.TextBlock:
+				finalText = append(finalText, b.Text)
+			case anthropic.ToolUseBlock:
+				toolUseBlocks = append(toolUseBlocks, b)
+			}
+		}
+
+		if len(toolUseBlocks) == 0 {
+			return strings.Join(finalText, "\n"), nil
+		}
+
+		// Execute every tool call in this response and collect the results
+		var anthropicToolResults []anthropic.ContentBlockParamUnion
+		for _, toolUseBlock := range toolUseBlocks {
+			// Add information about the tool call to final text
+			finalText = append(finalText, fmt.Sprintf("[Calling tool %s with args %s]", toolUseBlock.Name, string(toolUseBlock.Input)))
+
+			// Call the MCP server tool
+			mcpToolResult, err := c.session.CallTool(ctx, &mcp.CallToolParams{
+				Name:      toolUseBlock.Name,
+				Arguments: toolUseBlock.Input,
+			})
+			if err != nil {
+				return "", fmt.Errorf("tool call %s failed: %w", toolUseBlock.Name, err)
+			}
+
+			if err := c.validateToolOutput(toolUseBlock.Name, mcpToolResult); err != nil {
+				return "", err
+			}
+
+			// StructuredContent is data the application can use directly.
+			if items, ok := mcpToolResult.StructuredContent.([]any); ok {
+				finalText = append(finalText, fmt.Sprintf("[%s returned %d items]", toolUseBlock.Name, len(items)))
+			}
+
+			// Content is a list of block types; forward only the text ones.
+			var texts []string
+			for _, block := range mcpToolResult.Content {
+				if text, ok := block.(*mcp.TextContent); ok {
+					texts = append(texts, text.Text)
+				}
+			}
+
+			anthropicToolResults = append(anthropicToolResults, anthropic.NewToolResultBlock(
+				toolUseBlock.ID,
+				strings.Join(texts, "\n"),
+				mcpToolResult.IsError,
+			))
+		}
+
+		// Append the assistant's response and all tool results, in one user
+		// message, to the history. Every tool_use needs a matching tool_result.
+		messages = append(messages, response.ToParam())
+		messages = append(messages, anthropic.NewUserMessage(anthropicToolResults...))
+
+		response, err = c.createMessage(ctx, messages)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// The turn cap was hit. Keep the last response's text. If it asked for
+	// more tools, say they were not run.
+	wantsTools := false
 	for _, block := range response.Content {
 		switch b := block.AsAny().(type) {
 		case anthropic.TextBlock:
 			finalText = append(finalText, b.Text)
 		case anthropic.ToolUseBlock:
-			toolUseBlocks = append(toolUseBlocks, b)
+			wantsTools = true
 		}
 	}
-
-	if len(toolUseBlocks) == 0 {
-		return strings.Join(finalText, "\n"), nil
-	}
-
-	// Append assistant's response to message history
-	messages = append(messages, response.ToParam())
-
-	// Execute each tool call and collect responses
-	var anthropicToolResults []anthropic.ContentBlockParamUnion
-	for _, toolUseBlock := range toolUseBlocks {
-		// Add information about the tool call to final text
-		finalText = append(finalText, fmt.Sprintf("[Calling tool %s with args %s]", toolUseBlock.Name, string(toolUseBlock.Input)))
-
-		// Call the MCP server tool
-		mcpToolResult, err := c.session.CallTool(ctx, &mcp.CallToolParams{
-			Name:      toolUseBlock.Name,
-			Arguments: toolUseBlock.Input,
-		})
-		if err != nil {
-			return "", fmt.Errorf("tool call %s failed: %w", toolUseBlock.Name, err)
-		}
-
-		if err := c.validateToolOutput(toolUseBlock.Name, mcpToolResult); err != nil {
-			return "", err
-		}
-
-		// StructuredContent is data the application can use directly.
-		if items, ok := mcpToolResult.StructuredContent.([]any); ok {
-			finalText = append(finalText, fmt.Sprintf("[%s returned %d items]", toolUseBlock.Name, len(items)))
-		}
-
-		// Content is a list of block types; forward only the text ones.
-		var texts []string
-		for _, block := range mcpToolResult.Content {
-			if text, ok := block.(*mcp.TextContent); ok {
-				texts = append(texts, text.Text)
-			}
-		}
-
-		anthropicToolResults = append(anthropicToolResults, anthropic.NewToolResultBlock(
-			toolUseBlock.ID,
-			strings.Join(texts, "\n"),
-			mcpToolResult.IsError,
-		))
-	}
-
-	// Append tool responses to message history
-	messages = append(messages, anthropic.NewUserMessage(anthropicToolResults...))
-
-	// Make another API call with tool results
-	response, err = c.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     model,
-		MaxTokens: 1024,
-		Messages:  messages,
-	})
-	if err != nil {
-		return "", fmt.Errorf("anthropic API request with tool results failed: %w", err)
-	}
-
-	// Collect text from final response
-	for _, block := range response.Content {
-		switch b := block.AsAny().(type) {
-		case anthropic.TextBlock:
-			finalText = append(finalText, b.Text)
-		}
+	if wantsTools {
+		finalText = append(finalText, fmt.Sprintf("[Stopped after %d tool-use turns]", maxToolTurns))
 	}
 
 	return strings.Join(finalText, "\n"), nil
+}
+
+// createMessage calls Claude with the current history. Tools are passed on
+// every call so Claude can keep calling them across turns.
+func (c *MCPClient) createMessage(ctx context.Context, messages []anthropic.MessageParam) (*anthropic.Message, error) {
+	response, err := c.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     model,
+		MaxTokens: maxTokens,
+		Messages:  messages,
+		Tools:     c.tools,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("anthropic API request failed: %w", err)
+	}
+	return response, nil
 }
 
 func (c *MCPClient) ChatLoop(ctx context.Context) error {

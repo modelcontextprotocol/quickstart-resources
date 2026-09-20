@@ -8,6 +8,7 @@ The smoke tests verify:
 
 - **Servers**: Each weather server (Python, TypeScript, Rust, Go, Ruby) can start, respond to MCP protocol requests, and honour the output schemas it advertises
 - **Clients**: Each MCP client (Python, TypeScript, Ruby, Go, Rust) can connect to a mock server and list tools
+- **Tool loop**: Each client (Python, TypeScript, Ruby, Go) runs a query through a scripted tool-use loop against a fake Anthropic API and forwards tool results correctly
 
 ## Structured content
 
@@ -19,6 +20,20 @@ Listing tools is not enough to catch a broken structured result, so each server 
 The array case is the one worth guarding. A server that advertises `{"type": "array"}` and then answers `{"result": [...]}` passes a tools/list-only test and fails this one.
 
 Tool calls reach the live NWS API. When it is unreachable the tools return an error result, which the test reports as a skip rather than a failure — someone else's outage should not fail the build.
+
+## Tool loop
+
+Connecting and listing tools does not exercise the chat loop, so each client is also driven through three scripted queries with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test. The helper types each query only after the client shows its `Query:` prompt, as a person would.
+
+The fake API picks a script from the query text and checks every request the client sends:
+
+- **parallel tools** — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then an answer. `tools` must be passed on every call, `max_tokens` must be 10000 (room for the model's adaptive thinking), every `tool_use` must get a `tool_result` in a single following user message with matching `tool_use_id`s, and the MCP `isError` result must be forwarded as `is_error`.
+- **ten tool turns** — exactly `MAX_TOOL_TURNS` tool calls, then an answer. The client must print the answer and no stop notice: nothing was cut short.
+- **endless tool turns** — a tool call on every response. The client must stop after `MAX_TOOL_TURNS` rounds, print `[Stopped after 10 tool-use turns]` once, and make no further call.
+
+Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, or gets the turn cap wrong passes the no-key test and fails this one.
+
+The Rust client is not covered yet. Its `genai` crate reads no environment variable for the endpoint, and it negotiates protocol `2025-11-25`, under which the mock's array-rooted tool is refused at call time.
 
 ## Running Tests
 
@@ -92,6 +107,22 @@ It advertises two tools whose output schemas cover both shapes a structured resu
 
 ```bash
 node tests/helpers/build/mock-mcp-server.js
+```
+
+### tool-loop-test.ts
+
+Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the three queries and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
+
+**Usage**:
+
+```bash
+node tests/helpers/build/tool-loop-test.js <client command> [args...]
+```
+
+**Example**:
+
+```bash
+node tests/helpers/build/tool-loop-test.js node mcp-client-typescript/build/index.js tests/helpers/build/mock-mcp-server.js
 ```
 
 ## CI/CD Integration
