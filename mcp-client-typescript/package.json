@@ -11,9 +11,9 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
+    "@anthropic-ai/sdk": "^0.127.0",
     "@modelcontextprotocol/client": "^2.0.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^18.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.13.4",
