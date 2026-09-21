@@ -1,15 +1,15 @@
 use anyhow::{Context, Result, bail};
-use genai::Client;
-use genai::chat::{
-    ChatMessage, ChatOptions, ChatRequest, ChatResponse, ContentPart, Tool as GenaiTool,
-    ToolResponse,
-};
 use jsonschema::Validator;
-use rmcp::model::{CallToolRequestParams, CallToolResult, Tool as McpTool};
-use rmcp::service::{RoleClient, RunningService, ServiceExt};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, Implementation,
+    ProtocolVersion, Tool as McpTool,
+};
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -19,10 +19,70 @@ const MODEL_ANTHROPIC: &str = "claude-sonnet-5";
 const MAX_TOKENS: u32 = 10000;
 const MAX_TOOL_TURNS: usize = 10;
 
+const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// One turn of the conversation, as the Messages API takes it.
+///
+/// `content` is a list of raw blocks rather than typed ones on purpose. An
+/// assistant turn is fed straight back on the next request, and Claude requires
+/// the blocks it sent to return unchanged -- a thinking block's `signature`
+/// included. Reserialising through a narrower type would drop whatever it does
+/// not model.
+#[derive(Serialize, Clone)]
+struct Message {
+    role: &'static str,
+    content: Vec<Value>,
+}
+
+impl Message {
+    fn user(content: Vec<Value>) -> Self {
+        Message {
+            role: "user",
+            content,
+        }
+    }
+
+    fn assistant(content: Vec<Value>) -> Self {
+        Message {
+            role: "assistant",
+            content,
+        }
+    }
+}
+
+/// A tool as the Messages API declares it, converted from an MCP tool.
+#[derive(Serialize, Clone)]
+struct ToolDefinition {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    input_schema: Value,
+}
+
+#[derive(Serialize)]
+struct MessagesRequest<'a> {
+    model: &'a str,
+    max_tokens: u32,
+    messages: &'a [Message],
+    tools: &'a [ToolDefinition],
+}
+
+#[derive(Deserialize)]
+struct MessagesResponse {
+    content: Vec<Value>,
+}
+
+/// The `type` of a content block, when it has one.
+fn block_type(block: &Value) -> &str {
+    block.get("type").and_then(Value::as_str).unwrap_or_default()
+}
+
 struct MCPClient {
-    anthropic: Client,
-    session: Option<RunningService<RoleClient, ()>>,
-    tools: Vec<GenaiTool>,
+    http: reqwest::Client,
+    session: Option<RunningService<RoleClient, ClientConfig>>,
+    tools: Vec<ToolDefinition>,
     /// Compiled `outputSchema` per tool name. rmcp does not validate results,
     /// so this client does it with the `jsonschema` crate.
     output_schemas: HashMap<String, Validator>,
@@ -31,7 +91,10 @@ struct MCPClient {
 impl MCPClient {
     fn new() -> Result<Self> {
         Ok(MCPClient {
-            anthropic: Client::default(),
+            http: reqwest::Client::builder()
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                .context("Failed to build HTTP client")?,
             session: None,
             tools: Vec::new(),
             output_schemas: HashMap::new(),
@@ -67,7 +130,27 @@ impl MCPClient {
         let process = TokioChildProcess::new(command)
             .with_context(|| format!("Failed to spawn server process for {:?}", server_args))?;
 
-        let session = ().serve(process).await?;
+        // Without a ClientConfig the client would report rmcp's own crate name
+        // and version rather than its own.
+        let config = ClientConfig::new(
+            ClientCapabilities::default(),
+            Implementation::new("mcp-client-rust", "1.0.0"),
+        );
+
+        // `Auto` probes server/discover and falls back to the 2025-11-25
+        // initialize handshake, matching the Python and TypeScript clients.
+        // `serve` alone would only ever do the legacy handshake, under which a
+        // server cannot offer this era's features -- an array-rooted
+        // `outputSchema`, for one, which get_alerts uses.
+        let session = config
+            .serve_with_lifecycle(
+                process,
+                ClientLifecycleMode::Auto {
+                    preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+                    legacy_version: Some(ProtocolVersion::V_2025_11_25),
+                },
+            )
+            .await?;
 
         let rmcp_tools = session
             .list_all_tools()
@@ -79,7 +162,11 @@ impl MCPClient {
             .map(|tool| tool.name.to_string())
             .collect();
 
-        println!("Connected to server with tools: {tool_names:?}");
+        let protocol_version = session
+            .peer_info()
+            .map(|info| info.protocol_version.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        println!("Connected over protocol {protocol_version} with tools: {tool_names:?}");
 
         // An outputSchema root may be any JSON Schema, not just an object.
         for tool in &rmcp_tools {
@@ -104,109 +191,149 @@ impl MCPClient {
             .as_ref()
             .context("Client is not connected to any server")?;
 
-        let mut messages = vec![ChatMessage::user(query)];
+        let mut messages = vec![Message::user(vec![json!({"type": "text", "text": query})])];
         let mut final_text = Vec::new();
 
         // Initial Claude API call with tools
-        let mut chat_rsp = self.request_model(&messages).await?;
+        let mut content = self.request_model(&messages).await?;
 
         // Keep calling tools until Claude answers without one, up to a cap.
         for _ in 0..MAX_TOOL_TURNS {
-            for text in chat_rsp.texts() {
-                final_text.push(text.to_string());
+            let mut tool_uses = Vec::new();
+            for block in &content {
+                match block_type(block) {
+                    "text" => {
+                        if let Some(text) = block.get("text").and_then(Value::as_str) {
+                            final_text.push(text.to_string());
+                        }
+                    }
+                    "tool_use" => tool_uses.push(block.clone()),
+                    _ => {}
+                }
             }
 
-            let tool_calls = chat_rsp.tool_calls();
-            if tool_calls.is_empty() {
+            if tool_uses.is_empty() {
                 return Ok(final_text.join("\n"));
             }
 
             // Execute every tool call in this response and collect the results
             let mut tool_results = Vec::new();
-            for tool_call in tool_calls {
-                // Add information about the tool call to final text
-                let tool_args_str = serde_json::to_string(&tool_call.fn_arguments)
-                    .unwrap_or_else(|_| "{}".to_string());
+            for tool_use in &tool_uses {
+                let name = tool_use
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .context("tool_use block has no name")?;
+                let id = tool_use
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .context("tool_use block has no id")?;
+                let input = tool_use.get("input").cloned().unwrap_or(json!({}));
 
-                final_text.push(format!(
-                    "[Calling tool {} with args {}]",
-                    tool_call.fn_name, tool_args_str
-                ));
+                // Add information about the tool call to final text
+                final_text.push(format!("[Calling tool {name} with args {input}]"));
 
                 // Query the MCP server
-                let mut params = CallToolRequestParams::new(tool_call.fn_name.clone());
-                if let Some(arguments) = tool_call.fn_arguments.as_object().cloned() {
+                let mut params = CallToolRequestParams::new(name.to_string());
+                if let Some(arguments) = input.as_object().cloned() {
                     params = params.with_arguments(arguments);
                 }
                 let tool_result = session
                     .call_tool(params)
                     .await
-                    .with_context(|| format!("Tool call {} failed", tool_call.fn_name))?;
+                    .with_context(|| format!("Tool call {name} failed"))?;
 
-                self.validate_tool_output(&tool_call.fn_name, &tool_result)?;
+                self.validate_tool_output(name, &tool_result)?;
 
                 // structured_content is data the application can use directly.
                 if let Some(Value::Array(items)) = &tool_result.structured_content {
-                    final_text.push(format!(
-                        "[{} returned {} items]",
-                        tool_call.fn_name,
-                        items.len()
-                    ));
+                    final_text.push(format!("[{name} returned {} items]", items.len()));
                 }
 
                 // content is a list of block types; forward only the text ones.
-                let mut payload = tool_result
+                let payload = tool_result
                     .content
                     .iter()
                     .filter_map(|block| block.as_text().map(|text| text.text.as_str()))
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                // genai's ToolResponse cannot set Anthropic's `is_error` flag, so
-                // an error result is marked in the text instead.
-                if tool_result.is_error.unwrap_or(false) {
-                    payload = format!("Error: {payload}");
-                }
-
-                tool_results.push(ContentPart::ToolResponse(ToolResponse::new(
-                    tool_call.call_id.clone(),
-                    payload,
-                )));
+                tool_results.push(json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": payload,
+                    "is_error": tool_result.is_error.unwrap_or(false),
+                }));
             }
 
             // Append the assistant's response and all tool results, in one user
-            // message, to the history. Every tool call needs a matching result.
-            messages.push(ChatMessage::assistant(chat_rsp.content.clone()));
-            messages.push(ChatMessage::user(tool_results));
+            // message, to the history. Every tool_use needs a matching
+            // tool_result, and the assistant's blocks go back as they arrived.
+            messages.push(Message::assistant(content));
+            messages.push(Message::user(tool_results));
 
-            chat_rsp = self.request_model(&messages).await?;
+            content = self.request_model(&messages).await?;
         }
 
         // The turn cap was hit. Keep the last response's text. If it asked for
         // more tools, say they were not run.
-        for text in chat_rsp.texts() {
-            final_text.push(text.to_string());
+        let mut wants_tools = false;
+        for block in &content {
+            match block_type(block) {
+                "text" => {
+                    if let Some(text) = block.get("text").and_then(Value::as_str) {
+                        final_text.push(text.to_string());
+                    }
+                }
+                "tool_use" => wants_tools = true,
+                _ => {}
+            }
         }
-        if !chat_rsp.tool_calls().is_empty() {
+        if wants_tools {
             final_text.push(format!("[Stopped after {MAX_TOOL_TURNS} tool-use turns]"));
         }
 
         Ok(final_text.join("\n"))
     }
 
-    /// Call Claude with the current history. Tools are passed on every call so
-    /// Claude can keep calling them across turns.
-    async fn request_model(&self, messages: &[ChatMessage]) -> Result<ChatResponse> {
-        let chat_req = ChatRequest::new(messages.to_vec()).with_tools(self.tools.clone());
-        let options = ChatOptions::default().with_max_tokens(MAX_TOKENS);
+    /// Call Claude with the current history and return the content blocks of
+    /// its reply, untouched. Tools are passed on every call so Claude can keep
+    /// calling them across turns.
+    async fn request_model(&self, messages: &[Message]) -> Result<Vec<Value>> {
+        let api_key = std::env::var("ANTHROPIC_API_KEY").context("ANTHROPIC_API_KEY is not set")?;
+        // The base URL is configurable for the same reason the official SDKs
+        // make it configurable: to point the client at a local stand-in.
+        let base_url = std::env::var("ANTHROPIC_BASE_URL")
+            .unwrap_or_else(|_| ANTHROPIC_API_BASE.to_string());
+
+        let request = MessagesRequest {
+            model: MODEL_ANTHROPIC,
+            max_tokens: MAX_TOKENS,
+            messages,
+            tools: &self.tools,
+        };
 
         let response = self
-            .anthropic
-            .exec_chat(MODEL_ANTHROPIC, chat_req, Some(&options))
+            .http
+            .post(format!("{}/v1/messages", base_url.trim_end_matches('/')))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .json(&request)
+            .send()
             .await
-            .context("Anthropic chat request failed")?;
+            .context("Anthropic request failed")?;
 
-        Ok(response)
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .context("Unable to read the Anthropic response")?;
+        if !status.is_success() {
+            bail!("Anthropic request failed with {status}: {body}");
+        }
+
+        let parsed: MessagesResponse =
+            serde_json::from_str(&body).context("Unable to parse the Anthropic response")?;
+        Ok(parsed.content)
     }
 
     async fn chat_loop(&mut self) -> Result<()> {
@@ -235,7 +362,7 @@ impl MCPClient {
 
             match self.process_query(query).await {
                 Ok(response) => println!("\n{}", response),
-                Err(err) => println!("\nError: {}", err),
+                Err(err) => println!("\nError: {:#}", err),
             }
         }
 
@@ -293,14 +420,13 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn convert_tools(tools: &[McpTool]) -> Vec<GenaiTool> {
+fn convert_tools(tools: &[McpTool]) -> Vec<ToolDefinition> {
     tools
         .iter()
-        .map(|tool| GenaiTool {
+        .map(|tool| ToolDefinition {
             name: tool.name.to_string(),
             description: tool.description.as_deref().map(str::to_string),
-            schema: Some(Value::Object(tool.input_schema.as_ref().clone())),
-            config: None,
+            input_schema: Value::Object(tool.input_schema.as_ref().clone()),
         })
         .collect()
 }

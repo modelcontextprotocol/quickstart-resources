@@ -8,7 +8,7 @@ The smoke tests verify:
 
 - **Servers**: Each weather server (Python, TypeScript, Rust, Go, Ruby) can start, respond to MCP protocol requests, and honour the output schemas it advertises
 - **Clients**: Each MCP client (Python, TypeScript, Ruby, Go, Rust) can connect to a mock server and list tools
-- **Tool loop**: Each client (Python, TypeScript, Ruby, Go) runs a query through a scripted tool-use loop against a fake Anthropic API and forwards tool results correctly
+- **Tool loop**: Each client (Python, TypeScript, Ruby, Go, Rust) runs a query through a scripted tool-use loop against a fake Anthropic API and forwards tool results correctly
 
 ## Structured content
 
@@ -33,7 +33,7 @@ The fake API picks a script from the query text and checks every request the cli
 
 Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, or gets the turn cap wrong passes the no-key test and fails this one.
 
-The Rust client is not covered yet. Its `genai` crate reads no environment variable for the endpoint, and it negotiates protocol `2025-11-25`, under which the mock's array-rooted tool is refused at call time.
+All five clients are covered, including Rust: it calls the Messages API directly, so it honours `ANTHROPIC_BASE_URL` like the official SDKs do.
 
 ## Running Tests
 

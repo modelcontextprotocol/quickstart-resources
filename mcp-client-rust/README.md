@@ -31,6 +31,16 @@ Type a question (for example, "What's the weather in Sacramento?") and Claude an
 
 Without an `ANTHROPIC_API_KEY`, the client still connects, prints the server's tools, and exits — useful for verifying the MCP wiring without credentials.
 
+## Talking to Claude
+
+There is no official Anthropic SDK for Rust, so this client calls the [Messages API](https://docs.anthropic.com/en/api/messages) over HTTP with `reqwest`. That keeps the request shape visible, and it means an assistant turn can be fed back exactly as it arrived. Claude requires that: the blocks it sends must return unchanged on the next request, a thinking block's `signature` included, and a wrapper type that models only text and tool calls would drop the rest.
+
+`ANTHROPIC_BASE_URL` overrides the endpoint, as it does in the official SDKs for the other languages.
+
+## Protocol negotiation
+
+rmcp's `serve` only performs the legacy `2025-11-25` `initialize` handshake, so this client uses `serve_with_lifecycle` with `ClientLifecycleMode::Auto` instead: one `server/discover` probe for `2026-07-28`, falling back to `initialize`. Matching the Python and TypeScript clients' `auto` mode, it also makes this era's features reachable — an array-rooted `outputSchema`, for one, which `get_alerts` uses. The negotiated revision is printed on connect.
+
 ## Structured content
 
 rmcp does not validate tool output, so this client compiles each declared `outputSchema` at connect time and checks results against it — the spec's client-side SHOULD. It uses the [`jsonschema`](https://docs.rs/jsonschema) crate, which rmcp's own documentation recommends.
