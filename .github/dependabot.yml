@@ -1,0 +1,71 @@
+# Keep every example's dependencies current.
+#
+# These examples are the companion code for two official tutorials, so a reader
+# copying from them should be copying current SDK usage. One ecosystem entry per
+# language, plus the Node test helpers and the workflow actions.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directories:
+      - /mcp-client-python
+      - /weather-server-python
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directories:
+      - /mcp-client-typescript
+      - /weather-server-typescript
+      - /tests/helpers
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directories:
+      - /mcp-client-go
+      - /weather-server-go
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directories:
+      - /mcp-client-rust
+      - /weather-server-rust
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  - package-ecosystem: bundler
+    directories:
+      - /mcp-client-ruby
+      - /weather-server-ruby
+    schedule:
+      interval: weekly
+    groups:
+      bundler:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
