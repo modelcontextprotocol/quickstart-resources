@@ -15,6 +15,9 @@ updates:
       python:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directories:
@@ -27,6 +30,9 @@ updates:
       npm:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: gomod
     directories:
@@ -38,6 +44,9 @@ updates:
       go:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: cargo
     directories:
@@ -49,6 +58,9 @@ updates:
       cargo:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: bundler
     directories:
@@ -60,6 +72,9 @@ updates:
       bundler:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: /
@@ -69,3 +84,6 @@ updates:
       actions:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
