@@ -156,9 +156,10 @@ test_mcp_client_rust() {
 
 # The tool-loop tests drive the chat loop itself, which the no-key tests never
 # reach. The helper starts a fake Anthropic API on a loopback port, points the
-# client at it through ANTHROPIC_BASE_URL, and scripts one query as two
-# parallel tool calls, then a failing one, then an answer. It checks every
-# request the client sends; see tests/README.md for what is checked.
+# client at it through ANTHROPIC_BASE_URL, and types three queries at the
+# client's prompt: two parallel tool calls then a failing one, exactly ten
+# tool turns then an answer, and tool calls past the turn limit. It checks
+# every request the client sends; see tests/README.md for what is checked.
 
 # Test: Python MCP client tool loop
 test_tool_loop_python() {
@@ -200,10 +201,21 @@ test_tool_loop_go() {
     node "${TOOL_LOOP_TEST}" "${client_bin}" node "${MOCK_SERVER}"
 }
 
-# The Rust client has no tool-loop test yet. Its genai crate reads no
-# environment variable for the API endpoint, so the fake API cannot be reached
-# without adding code to the example, and it negotiates protocol 2025-11-25,
-# under which the mock's array-rooted tool is refused at call time.
+# Test: Rust MCP client tool loop
+test_tool_loop_rust() {
+    check_dependency cargo || return 1
+    local client_dir="${PROJECT_ROOT}/mcp-client-rust"
+    ensure_built "${client_dir}" mcp-client-rust || return 1
+
+    local client_bin
+    client_bin=$(resolve_binary "${client_dir}/target/release/mcp-client-rust" \
+        || resolve_binary "${client_dir}/target/debug/mcp-client-rust") || {
+        print_error "no mcp-client-rust binary found in ${client_dir}/target"
+        return 1
+    }
+
+    node "${TOOL_LOOP_TEST}" "${client_bin}" node "${MOCK_SERVER}"
+}
 
 # Run all tests
 
@@ -222,6 +234,7 @@ run_test "mcp-client-python tool loop" test_tool_loop_python
 run_test "mcp-client-typescript tool loop" test_tool_loop_typescript
 run_test "mcp-client-ruby tool loop" test_tool_loop_ruby
 run_test "mcp-client-go tool loop" test_tool_loop_go
+run_test "mcp-client-rust tool loop" test_tool_loop_rust
 
 # Print summary
 echo ""
