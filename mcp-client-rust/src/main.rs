@@ -237,10 +237,22 @@ impl MCPClient {
                 if let Some(arguments) = input.as_object().cloned() {
                     params = params.with_arguments(arguments);
                 }
-                let tool_result = session
-                    .call_tool(params)
-                    .await
-                    .with_context(|| format!("Tool call {name} failed"))?;
+                let tool_result = match session.call_tool(params).await {
+                    Ok(result) => result,
+                    // A rejected call is the model's mistake to correct, so it
+                    // goes back as a failed tool_result rather than ending the
+                    // query. Every tool_use still needs a matching result.
+                    Err(error) => {
+                        final_text.push(format!("[{name} failed: {error}]"));
+                        tool_results.push(json!({
+                            "type": "tool_result",
+                            "tool_use_id": id,
+                            "content": format!("Tool call {name} failed: {error}"),
+                            "is_error": true,
+                        }));
+                        continue;
+                    }
+                };
 
                 self.validate_tool_output(name, &tool_result)?;
 
@@ -250,12 +262,21 @@ impl MCPClient {
                 }
 
                 // content is a list of block types; forward only the text ones.
-                let payload = tool_result
+                let mut payload = tool_result
                     .content
                     .iter()
                     .filter_map(|block| block.as_text().map(|text| text.text.as_str()))
                     .collect::<Vec<_>>()
                     .join("\n");
+
+                // A structured result SHOULD also carry serialized JSON in a text
+                // block, but only SHOULD, so fall back to serializing it rather
+                // than sending the model an empty result.
+                if payload.is_empty() {
+                    if let Some(structured) = &tool_result.structured_content {
+                        payload = structured.to_string();
+                    }
+                }
 
                 tool_results.push(json!({
                     "type": "tool_result",
