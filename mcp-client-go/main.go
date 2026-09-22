@@ -17,7 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var model anthropic.Model = "claude-sonnet-5"
+var model = anthropic.ModelClaudeSonnet5
 
 // Sonnet 5 thinks adaptively unless told otherwise, and max_tokens caps thinking
 // plus the reply, so leave room for both.
