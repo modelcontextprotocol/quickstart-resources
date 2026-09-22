@@ -10,9 +10,6 @@ dist/
 wheels/
 *.egg-info
 
-# Bundler-generated files
-Gemfile.lock
-
 # Virtual environments
 .venv
 

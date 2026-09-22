@@ -148,7 +148,8 @@ ensure_built() {
 # Ensure a Ruby project directory has its gems installed.
 #
 # Unlike ensure_built there is no artefact to test for -- a Ruby example has no
-# build step and Gemfile.lock is gitignored -- so ask Bundler directly.
+# build step, and a committed Gemfile.lock says which gems are wanted, not
+# whether they are installed -- so ask Bundler directly.
 ensure_bundled() {
     local dir=$1
     cd "${dir}" || return 1
