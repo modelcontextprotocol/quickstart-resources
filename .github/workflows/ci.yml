@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Node 24 is the Active LTS. The 2.0 MCP SDK packages require >=20, but
       # Node 20 reached end of life in April 2026.
