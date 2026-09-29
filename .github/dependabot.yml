@@ -26,6 +26,12 @@ updates:
       - /tests/helpers
     schedule:
       interval: weekly
+    # @types/node tracks the minimum supported Node version (engines: >=24), not
+    # the latest release. Bump its major by hand when raising that minimum.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
     groups:
       npm:
         patterns:
