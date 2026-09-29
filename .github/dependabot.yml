@@ -26,8 +26,9 @@ updates:
       - /tests/helpers
     schedule:
       interval: weekly
-    # @types/node tracks the minimum supported Node version (engines: >=24), not
-    # the latest release. Bump its major by hand when raising that minimum.
+    # @types/node tracks the minimum supported Node version (24, the oldest LTS
+    # these examples support), not the latest release. Bump its major by hand
+    # when raising that minimum across all npm directories.
     ignore:
       - dependency-name: "@types/node"
         update-types:
