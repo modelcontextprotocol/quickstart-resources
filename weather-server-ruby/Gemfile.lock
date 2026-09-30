@@ -8,9 +8,9 @@ GEM
       hana (~> 1.3)
       regexp_parser (~> 2.0)
       simpleidn (~> 0.2)
-    mcp (1.6.0)
+    mcp (1.6.1)
       json_schemer (>= 2.4)
-    regexp_parser (2.12.0)
+    regexp_parser (2.13.1)
     simpleidn (0.3.0)
 
 PLATFORMS
