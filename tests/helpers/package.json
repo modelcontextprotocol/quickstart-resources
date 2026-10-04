@@ -8,15 +8,15 @@
     "clean": "rm -rf build"
   },
   "devDependencies": {
-    "@types/node": "^24.13.4",
+    "@types/node": "^24.19.0",
     "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/client": "^2.2.0",
+    "@modelcontextprotocol/server": "^2.2.0",
     "zod": "^4.6.5"
   }
 }
