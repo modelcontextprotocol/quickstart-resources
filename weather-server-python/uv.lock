@@ -1068,7 +1068,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx2", specifier = ">=2.13.1" },
-    { name = "mcp", extras = ["cli"], specifier = ">=2.2.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=2.3.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
 ]
 
