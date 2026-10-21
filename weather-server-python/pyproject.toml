@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 # httpx2, not httpx: `mcp` already depends on httpx2, so adding httpx would
 # install a second HTTP stack alongside it.
 dependencies = [
-    "httpx2>=2.13.1",
+    "httpx2>=2.14.0",
     "mcp[cli]>=2.3.0",
     # weather.py imports BaseModel, Field, and RootModel directly. RootModel is v2-only.
     "pydantic>=2.14.1",
@@ -19,7 +19,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.17.0",
+    "ruff>=0.17.1",
 ]
 
 [project.scripts]
