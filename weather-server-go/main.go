@@ -259,6 +259,19 @@ func alertsOutputSchema() *jsonschema.Schema {
 	return schema
 }
 
+// weatherToolAnnotations returns hints for hosts: both tools only read data,
+// and they read it from an outside service (the NWS API). Hints are not
+// guarantees; a host decides how far to trust them.
+func weatherToolAnnotations() *mcp.ToolAnnotations {
+	destructive, openWorld := false, true
+	return &mcp.ToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: &destructive,
+		IdempotentHint:  true,
+		OpenWorldHint:   &openWorld,
+	}
+}
+
 func main() {
 	// Create MCP server.
 	//
@@ -277,6 +290,7 @@ func main() {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_forecast",
 		Description: "Get weather forecast for a location",
+		Annotations: weatherToolAnnotations(),
 	}, getForecast)
 
 	// Add get_alerts tool
@@ -284,6 +298,7 @@ func main() {
 		Name:         "get_alerts",
 		Description:  "Get weather alerts for a US state",
 		OutputSchema: alertsOutputSchema(),
+		Annotations:  weatherToolAnnotations(),
 	}, getAlerts)
 
 	// Run server on stdio transport

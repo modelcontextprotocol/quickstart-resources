@@ -119,6 +119,16 @@ function formatPeriod(period: Forecast["periods"][number]): string {
   ].join("\n");
 }
 
+// Hints for hosts: both tools only read data, and they read it from an outside
+// service (the NWS API). Hints are not guarantees; a host decides how far to
+// trust them.
+const weatherToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+};
+
 function buildServer(): McpServer {
   const server = new McpServer({
     name: "weather",
@@ -129,6 +139,7 @@ function buildServer(): McpServer {
     "get-alerts",
     {
       title: "Get Weather Alerts",
+      annotations: weatherToolAnnotations,
       description: "Get weather alerts for a state",
       inputSchema: z.object({
         state: z
@@ -172,6 +183,7 @@ function buildServer(): McpServer {
     "get-forecast",
     {
       title: "Get Weather Forecast",
+      annotations: weatherToolAnnotations,
       description: "Get weather forecast for a location",
       inputSchema: z.object({
         latitude: z

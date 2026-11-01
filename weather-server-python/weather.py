@@ -3,6 +3,7 @@ from typing import Any
 import httpx2
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field, RootModel
 
 # Initialize the MCP server
@@ -11,6 +12,16 @@ mcp = MCPServer("weather")
 # Constants
 NWS_API_BASE = "https://api.weather.gov"
 USER_AGENT = "weather-app/1.0"
+
+# Hints for hosts: both tools only read data, and they read it from an outside
+# service (the NWS API). Hints are not guarantees; a host decides how far to
+# trust them.
+WEATHER_TOOL_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=True,
+)
 
 
 class Alert(BaseModel):
@@ -64,7 +75,7 @@ async def make_nws_request(url: str) -> dict[str, Any] | None:
             return None
 
 
-@mcp.tool()
+@mcp.tool(annotations=WEATHER_TOOL_ANNOTATIONS)
 async def get_alerts(state: str) -> Alerts:
     """Get weather alerts for a US state.
 
@@ -95,7 +106,7 @@ async def get_alerts(state: str) -> Alerts:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=WEATHER_TOOL_ANNOTATIONS)
 async def get_forecast(latitude: float, longitude: float) -> Forecast:
     """Get weather forecast for a location.
 
