@@ -11,6 +11,8 @@ class MCPClient
   # plus the reply, so leave room for both.
   MAX_TOKENS = 10000
   MAX_TOOL_TURNS = 10
+  # Image types the Messages API accepts.
+  SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"].freeze
 
   def initialize
     @mcp_client = nil
@@ -76,6 +78,35 @@ class MCPClient
 
   private
 
+  # Translate an MCP tool result into content for an Anthropic tool_result.
+  #
+  # MCP and Anthropic content blocks differ, so each kind is converted. A kind
+  # the model cannot take becomes a placeholder rather than vanishing, so the
+  # model knows something was there.
+  def tool_result_content(result)
+    blocks = Array(result["content"])
+    content = blocks.map do |block|
+      if block["type"] == "text"
+        { type: "text", text: block["text"] }
+      elsif block["type"] == "image" && SUPPORTED_IMAGE_TYPES.include?(block["mimeType"])
+        { type: "image", source: { type: "base64", media_type: block["mimeType"], data: block["data"] } }
+      elsif block["type"] == "resource" && block.dig("resource", "text")
+        { type: "text", text: block.dig("resource", "text") }
+      else
+        { type: "text", text: "[unsupported result type: #{block["type"]}]" }
+      end
+    end
+
+    # A structured result SHOULD also carry serialized JSON in a text block, but
+    # only SHOULD, so serialize it when no text block came with it.
+    structured = result["structuredContent"]
+    if !structured.nil? && blocks.none? { |block| block["type"] == "text" }
+      content << { type: "text", text: structured.to_json }
+    end
+
+    content
+  end
+
   def process_query(query)
     messages = [{ role: "user", content: query }]
 
@@ -104,8 +135,21 @@ class MCPClient
 
       # Execute every tool call in this response and collect the results.
       tool_results = tool_uses.map do |tool_use|
-        result = @mcp_client.call_tool(name: tool_use.name, arguments: tool_use.input)
         final_text << "[Calling tool #{tool_use.name} with args #{tool_use.input.to_json}]"
+        begin
+          result = @mcp_client.call_tool(name: tool_use.name, arguments: tool_use.input)
+        rescue MCP::Client::ServerError => e
+          # A rejected call is the model's mistake to correct, so it goes back as
+          # a failed tool_result rather than ending the query. Every tool_use
+          # still needs a matching result.
+          final_text << "[#{tool_use.name} failed: #{e.message}]"
+          next {
+            type: "tool_result",
+            tool_use_id: tool_use.id,
+            content: "Tool call #{tool_use.name} failed: #{e.message}",
+            is_error: true
+          }
+        end
 
         # structured_content is data the application can use directly; when a
         # tool returns an array, count its items rather than re-reading prose.
@@ -116,15 +160,12 @@ class MCPClient
           final_text << "[#{tool_use.name} returned #{structured.length} items]" if structured.is_a?(Array)
         end
 
-        # content is a list of block types; forward only the text ones.
-        tool_result_content = result.dig("result", "content")
-        result_text = if tool_result_content.is_a?(Array)
-          tool_result_content.filter_map { |content_item| content_item["text"] }.join("\n")
-        else
-          tool_result_content.to_s
-        end
-
-        { type: "tool_result", tool_use_id: tool_use.id, content: result_text, is_error: is_error }
+        {
+          type: "tool_result",
+          tool_use_id: tool_use.id,
+          content: tool_result_content(result["result"]),
+          is_error: is_error
+        }
       end
 
       # Append the assistant's response and all tool results, in one user

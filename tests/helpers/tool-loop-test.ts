@@ -10,7 +10,7 @@
  *  - a fake Anthropic Messages API, started here on a loopback port and handed
  *    to the client through ANTHROPIC_BASE_URL, which every quickstart SDK reads.
  *
- * Three queries are piped into one client process, and the fake API picks the
+ * Four queries are piped into one client process, and the fake API picks the
  * script from the query text:
  *
  *  - "parallel tools": text plus two tool_use blocks in one response, then one
@@ -22,6 +22,12 @@
  *    client must print the answer without a premature stop notice.
  *  - "endless tool turns": a tool call on every response. The client must stop
  *    after MAX_TOOL_TURNS rounds, say so, and make no further call.
+ *  - "tool result contents": three tool calls whose results need translating
+ *    before they reach the model. One the server rejects with a JSON-RPC error
+ *    must come back as an is_error tool_result, not end the query. One with
+ *    only structuredContent must arrive as JSON. One with image, resource and
+ *    audio blocks must arrive as an image block, the resource's text, and a
+ *    placeholder for the audio.
  *
  * A client that does one tool round and stops, drops `tools` on the second
  * call, sends one tool_result per message, or gets the turn cap wrong fails
@@ -32,9 +38,12 @@
 
 import { spawn } from "node:child_process";
 import http from "node:http";
+import { IMAGE_DATA, RESOURCE_TEXT, STRUCTURED_ONLY_VALUE } from "./mock-values.js";
 
 /** Sonnet 5 thinks adaptively; the clients reserve this much for it. */
 const EXPECTED_MAX_TOKENS = 10000;
+/** How many tools the mock server lists. */
+const MOCK_TOOL_COUNT = 5;
 /** MAX_TOOL_TURNS in every client. */
 const MAX_TOOL_TURNS = 10;
 const STOP_NOTICE = `[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`;
@@ -46,6 +55,7 @@ const QUERIES = {
   parallel: "parallel tools",
   atLimit: "ten tool turns",
   overrun: "endless tool turns",
+  contents: "tool result contents",
 } as const;
 type Scenario = keyof typeof QUERIES;
 
@@ -53,6 +63,7 @@ const FINAL_ANSWER: Record<Scenario, string> = {
   parallel: "All done.",
   atLimit: "Answered at the limit.",
   overrun: "never sent",
+  contents: "Contents handled.",
 };
 
 type Block = Record<string, unknown> & { type: string };
@@ -66,7 +77,7 @@ type Request = {
 
 const failures: string[] = [];
 let passed = 0;
-const calls: Record<Scenario, number> = { parallel: 0, atLimit: 0, overrun: 0 };
+const calls: Record<Scenario, number> = { parallel: 0, atLimit: 0, overrun: 0, contents: 0 };
 
 function check(condition: boolean, what: string) {
   if (condition) {
@@ -186,6 +197,69 @@ function respondParallel(n: number, request: Request): Block[] {
 }
 
 /**
+ * The scripted turn for the tool-result-contents query: one call to each of the
+ * mock server's three awkward tools, then an answer.
+ */
+function respondContents(n: number, request: Request): Block[] {
+  const label = `contents call ${n}`;
+  const last = request.messages[request.messages.length - 1];
+
+  if (n === 1) {
+    return [
+      toolUse("tc_1", "rejected_call", {}),
+      toolUse("tc_2", "structured_only", {}),
+      toolUse("tc_3", "non_text", {}),
+    ];
+  }
+
+  if (n === 2) {
+    const results = toolResultsOf(last);
+    const byId = (id: string) => results.find((block) => block.tool_use_id === id);
+    check(
+      results.length === 3,
+      `${label}: all three tool_results arrive, the rejected call's too (got ${results.length})`,
+    );
+
+    const rejected = byId("tc_1");
+    check(rejected?.is_error === true, `${label}: rejected call is forwarded as is_error`);
+    check(
+      textOf(rejected?.content).length > 0,
+      `${label}: rejected call's tool_result says what went wrong`,
+    );
+
+    const structured = byId("tc_2");
+    check(
+      textOf(structured?.content).includes(STRUCTURED_ONLY_VALUE),
+      `${label}: structuredContent without a text block is forwarded as JSON`,
+    );
+
+    const nonText = byId("tc_3");
+    const blocks = Array.isArray(nonText?.content) ? (nonText.content as Block[]) : [];
+    const image = blocks.find((block) => block.type === "image") as
+      | { source?: { type?: string; media_type?: string; data?: string } }
+      | undefined;
+    check(
+      image?.source?.type === "base64" &&
+        image.source.media_type === "image/png" &&
+        image.source.data === IMAGE_DATA,
+      `${label}: image block is converted to an Anthropic base64 image`,
+    );
+    check(
+      textOf(nonText?.content).includes(RESOURCE_TEXT),
+      `${label}: text resource is forwarded as its text`,
+    );
+    check(
+      textOf(nonText?.content).includes("[unsupported result type: audio]"),
+      `${label}: audio block is replaced by a placeholder`,
+    );
+    return [text(FINAL_ANSWER.contents)];
+  }
+
+  check(false, `${label}: unexpected extra call`);
+  return [text("extra")];
+}
+
+/**
  * The scripted turn for the two turn-limit queries. Each response asks for one
  * more tool call; the previous call's result must be present. At the limit the
  * script answers on call MAX_TOOL_TURNS + 1; past it, it never stops asking.
@@ -227,7 +301,7 @@ function respond(request: Request): Block[] {
   const n = ++calls[scenario];
 
   check(
-    Array.isArray(request.tools) && request.tools.length === 2,
+    Array.isArray(request.tools) && request.tools.length === MOCK_TOOL_COUNT,
     `${scenario} call ${n}: tools are passed (got ${request.tools?.length ?? "none"})`,
   );
   check(
@@ -235,7 +309,9 @@ function respond(request: Request): Block[] {
     `${scenario} call ${n}: max_tokens is ${EXPECTED_MAX_TOKENS} (got ${request.max_tokens})`,
   );
 
-  return scenario === "parallel" ? respondParallel(n, request) : respondTurnLimit(scenario, n, request);
+  if (scenario === "parallel") return respondParallel(n, request);
+  if (scenario === "contents") return respondContents(n, request);
+  return respondTurnLimit(scenario, n, request);
 }
 
 function startFakeApi(): Promise<http.Server> {
@@ -340,6 +416,9 @@ function checkOutput(code: number | null, stdout: string) {
     const notices = stdout.slice(overrunAt).split(STOP_NOTICE).length - 1;
     check(notices === 1, `overrun: stop notice printed once (got ${notices})`);
   }
+
+  check(calls.contents === 2, `contents: API was called 2 times (got ${calls.contents})`);
+  check(stdout.includes(FINAL_ANSWER.contents), "contents: client printed the final answer");
 }
 
 async function main() {

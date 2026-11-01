@@ -1,12 +1,13 @@
 import asyncio
+import json
 import os
 from contextlib import AsyncExitStack
 from pathlib import Path
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from mcp import Client, StdioServerParameters
-from mcp_types import TextContent
+from mcp import Client, MCPError, StdioServerParameters
+from mcp_types import CallToolResult, EmbeddedResource, ImageContent, TextContent, TextResourceContents
 
 load_dotenv()  # load environment variables from .env
 
@@ -15,6 +16,39 @@ ANTHROPIC_MODEL = "claude-sonnet-5"
 # plus the reply, so leave room for both.
 MAX_TOKENS = 10000
 MAX_TOOL_TURNS = 10
+# Image types the Messages API accepts.
+SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+def tool_result_content(result: CallToolResult) -> list[dict]:
+    """Translate an MCP tool result into content for an Anthropic tool_result.
+
+    MCP and Anthropic content blocks differ, so each kind is converted. A kind
+    the model cannot take becomes a placeholder rather than vanishing, so the
+    model knows something was there.
+    """
+    content: list[dict] = []
+    for block in result.content:
+        if isinstance(block, TextContent):
+            content.append({"type": "text", "text": block.text})
+        elif isinstance(block, ImageContent) and block.mime_type in SUPPORTED_IMAGE_TYPES:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": block.mime_type, "data": block.data},
+                }
+            )
+        elif isinstance(block, EmbeddedResource) and isinstance(block.resource, TextResourceContents):
+            content.append({"type": "text", "text": block.resource.text})
+        else:
+            content.append({"type": "text", "text": f"[unsupported result type: {block.type}]"})
+
+    # A structured result SHOULD also carry serialized JSON in a text block, but
+    # only SHOULD, so serialize it when no text block came with it.
+    if result.structured_content is not None and not any(isinstance(block, TextContent) for block in result.content):
+        content.append({"type": "text", "text": json.dumps(result.structured_content)})
+
+    return content
 
 
 class MCPClient:
@@ -90,20 +124,34 @@ class MCPClient:
 
             tool_results = []
             for tool_use in tool_uses:
-                # call_tool validates the result against the declared schema.
-                result = await self.client.call_tool(tool_use.name, tool_use.input)
                 final_text.append(f"[Calling tool {tool_use.name} with args {tool_use.input}]")
+                try:
+                    # call_tool validates the result against the declared schema.
+                    result = await self.client.call_tool(tool_use.name, tool_use.input)
+                except MCPError as error:
+                    # A rejected call is the model's mistake to correct, so it goes
+                    # back as a failed tool_result rather than ending the query.
+                    # Every tool_use still needs a matching result.
+                    final_text.append(f"[{tool_use.name} failed: {error}]")
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_use.id,
+                            "content": f"Tool call {tool_use.name} failed: {error}",
+                            "is_error": True,
+                        }
+                    )
+                    continue
 
                 # structured_content is data the application can use directly.
                 if isinstance(result.structured_content, list):
                     final_text.append(f"[{tool_use.name} returned {len(result.structured_content)} items]")
 
-                # content is a list of block types; forward only the text ones.
                 tool_results.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_use.id,
-                        "content": "\n".join(block.text for block in result.content if isinstance(block, TextContent)),
+                        "content": tool_result_content(result),
                         "is_error": bool(result.is_error),
                     }
                 )

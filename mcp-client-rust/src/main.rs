@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, bail};
 use jsonschema::Validator;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, Implementation,
-    ProtocolVersion, Tool as McpTool,
+    CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, ContentBlock,
+    Implementation, ProtocolVersion, ResourceContents, Tool as McpTool,
 };
 use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
@@ -22,6 +22,60 @@ const MAX_TOOL_TURNS: usize = 10;
 const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// Image types the Messages API accepts.
+const SUPPORTED_IMAGE_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/// Translate an MCP tool result into content for an Anthropic tool_result.
+///
+/// MCP and Anthropic content blocks differ, so each kind is converted. A kind
+/// the model cannot take becomes a placeholder rather than vanishing, so the
+/// model knows something was there.
+fn tool_result_content(result: &CallToolResult) -> Vec<Value> {
+    let mut content: Vec<Value> = result
+        .content
+        .iter()
+        .map(|block| match block {
+            ContentBlock::Text(text) => json!({"type": "text", "text": text.text}),
+            ContentBlock::Image(image)
+                if SUPPORTED_IMAGE_TYPES.contains(&image.mime_type.as_str()) =>
+            {
+                json!({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": image.mime_type, "data": image.data},
+                })
+            }
+            ContentBlock::Resource(resource) => match &resource.resource {
+                ResourceContents::TextResourceContents { text, .. } => {
+                    json!({"type": "text", "text": text})
+                }
+                _ => unsupported("resource"),
+            },
+            other => {
+                let kind = serde_json::to_value(other)
+                    .ok()
+                    .and_then(|value| value.get("type")?.as_str().map(str::to_string))
+                    .unwrap_or_else(|| "unknown".to_string());
+                unsupported(&kind)
+            }
+        })
+        .collect();
+
+    // A structured result SHOULD also carry serialized JSON in a text block,
+    // but only SHOULD, so serialize it when no text block came with it.
+    let has_text = result
+        .content
+        .iter()
+        .any(|block| matches!(block, ContentBlock::Text(_)));
+    if !has_text && let Some(structured) = &result.structured_content {
+        content.push(json!({"type": "text", "text": structured.to_string()}));
+    }
+
+    content
+}
+
+fn unsupported(kind: &str) -> Value {
+    json!({"type": "text", "text": format!("[unsupported result type: {kind}]")})
+}
 
 /// One turn of the conversation, as the Messages API takes it.
 ///
@@ -261,27 +315,10 @@ impl MCPClient {
                     final_text.push(format!("[{name} returned {} items]", items.len()));
                 }
 
-                // content is a list of block types; forward only the text ones.
-                let mut payload = tool_result
-                    .content
-                    .iter()
-                    .filter_map(|block| block.as_text().map(|text| text.text.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                // A structured result SHOULD also carry serialized JSON in a text
-                // block, but only SHOULD, so fall back to serializing it rather
-                // than sending the model an empty result.
-                if payload.is_empty() {
-                    if let Some(structured) = &tool_result.structured_content {
-                        payload = structured.to_string();
-                    }
-                }
-
                 tool_results.push(json!({
                     "type": "tool_result",
                     "tool_use_id": id,
-                    "content": payload,
+                    "content": tool_result_content(&tool_result),
                     "is_error": tool_result.is_error.unwrap_or(false),
                 }));
             }

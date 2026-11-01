@@ -6,6 +6,14 @@
  * schemas cover both shapes a structured result can take: an object root, and
  * an array root (allowed as of protocol revision 2026-07-28).
  *
+ * Three more tools return results a client must translate with care before
+ * passing them to the model (see tool-loop-test.ts):
+ *
+ *  - `rejected_call` fails at the protocol level (a JSON-RPC error, not an
+ *    `isError` result);
+ *  - `structured_only` returns `structuredContent` and no text block;
+ *  - `non_text` returns an image, a text resource and an audio block.
+ *
  * The array-rooted tool is deliberate. Clients that compile every declared
  * `outputSchema` up front — as the Go and Rust quickstart clients do — will
  * fail here if they assume an output schema is always `{"type": "object"}`.
@@ -18,6 +26,7 @@
 import type { Tool } from "@modelcontextprotocol/server";
 import { Server } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { IMAGE_DATA, RESOURCE_TEXT, STRUCTURED_ONLY_VALUE } from "./mock-values.js";
 
 // Track whether tools/list was called
 let toolsListCalled = false;
@@ -62,6 +71,26 @@ const TOOLS: Tool[] = [
       required: ["latitude", "longitude", "summary"],
     },
   },
+  {
+    name: "rejected_call",
+    description: "Mock tool the server always rejects with a JSON-RPC error",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "structured_only",
+    description: "Mock tool returning structuredContent and no text block",
+    inputSchema: { type: "object", properties: {} },
+    outputSchema: {
+      type: "object",
+      properties: { value: { type: "string" } },
+      required: ["value"],
+    },
+  },
+  {
+    name: "non_text",
+    description: "Mock tool returning image, resource and audio blocks",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 function buildServer(): Server {
@@ -96,6 +125,29 @@ function buildServer(): Server {
       return {
         content: [{ type: "text", text: forecast.summary }],
         structuredContent: forecast,
+      };
+    }
+
+    if (name === "rejected_call") {
+      // Thrown from a low-level handler, this reaches the client as a JSON-RPC
+      // error response rather than a result.
+      throw new Error("rejected_call is always rejected");
+    }
+
+    if (name === "structured_only") {
+      return { content: [], structuredContent: { value: STRUCTURED_ONLY_VALUE } };
+    }
+
+    if (name === "non_text") {
+      return {
+        content: [
+          { type: "image", data: IMAGE_DATA, mimeType: "image/png" },
+          {
+            type: "resource",
+            resource: { uri: "mock://notes", mimeType: "text/plain", text: RESOURCE_TEXT },
+          },
+          { type: "audio", data: "AAAA", mimeType: "audio/wav" },
+        ],
       };
     }
 

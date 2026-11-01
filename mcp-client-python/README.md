@@ -43,4 +43,6 @@ Without an `ANTHROPIC_API_KEY`, the client still connects, prints the server's t
 
 The two channels go to different readers: `content` is forwarded to the model, while `structured_content` is used as data — when a tool returns an array, the client counts its items rather than re-reading the prose. See [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content).
 
+Before a tool result goes to the model, the client converts it to the Messages API's block types. Text stays text, a PNG, JPEG, GIF or WebP image becomes an image block, and a text resource becomes its text. Anything else, such as audio, becomes a placeholder like `[unsupported result type: audio]`, so the model knows something was there. A result with structured content and no text block is sent as its JSON. A call the server rejects goes back to the model as a failed tool result, so it can correct itself, rather than ending the query.
+
 `Client(server_params, mode="auto")` launches the server from its `StdioServerParameters`, then probes `server/discover` and falls back to the `2025-11-25` handshake; `client.protocol_version` reports which era you got. See [Protocol versions](https://py.sdk.modelcontextprotocol.io/v2/protocol-versions/).

@@ -23,15 +23,16 @@ Tool calls reach the live NWS API. When it is unreachable the tools return an er
 
 ## Tool loop
 
-Connecting and listing tools does not exercise the chat loop, so each client is also driven through three scripted queries with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test. The helper types each query only after the client shows its `Query:` prompt, as a person would.
+Connecting and listing tools does not exercise the chat loop, so each client is also driven through four scripted queries with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test. The helper types each query only after the client shows its `Query:` prompt, as a person would.
 
 The fake API picks a script from the query text and checks every request the client sends:
 
 - **parallel tools** — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then an answer. `tools` must be passed on every call, `max_tokens` must be 10000 (room for the model's adaptive thinking), every `tool_use` must get a `tool_result` in a single following user message with matching `tool_use_id`s, and the MCP `isError` result must be forwarded as `is_error`.
 - **ten tool turns** — exactly `MAX_TOOL_TURNS` tool calls, then an answer. The client must print the answer and no stop notice: nothing was cut short.
 - **endless tool turns** — a tool call on every response. The client must stop after `MAX_TOOL_TURNS` rounds, print `[Stopped after 10 tool-use turns]` once, and make no further call.
+- **tool result contents** — one call to each of three tools whose results need translating before they reach the model. A call the server rejects with a JSON-RPC error must come back as a `tool_result` with `is_error` set, and the query must go on. A result with `structuredContent` and no text block must arrive as its JSON. A result with an image, a text resource and an audio block must arrive as an Anthropic base64 image block, the resource's text, and the placeholder `[unsupported result type: audio]`.
 
-Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, or gets the turn cap wrong passes the no-key test and fails this one.
+Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, or drops what a tool returned passes the no-key test and fails this one.
 
 All five clients are covered, including Rust: it calls the Messages API directly, so it honours `ANTHROPIC_BASE_URL` like the official SDKs do.
 
@@ -103,6 +104,8 @@ A minimal MCP server that verifies clients call the `tools/list` method. Used to
 
 It advertises two tools whose output schemas cover both shapes a structured result can take: an object root, and an array root. The array-rooted one is deliberate — a client that compiles every declared `outputSchema` up front, as the Go and Rust quickstart clients do, will fail here if it assumes an output schema is always `{"type": "object"}`.
 
+Three more tools serve the tool-loop test's **tool result contents** query: `rejected_call` fails with a JSON-RPC error, `structured_only` returns `structuredContent` and no text block, and `non_text` returns an image, a text resource and an audio block. The values the test looks for are in `mock-values.ts`.
+
 **Usage**:
 
 ```bash
@@ -111,7 +114,7 @@ node tests/helpers/build/mock-mcp-server.js
 
 ### tool-loop-test.ts
 
-Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the three queries and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
+Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the four queries and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
 
 **Usage**:
 
