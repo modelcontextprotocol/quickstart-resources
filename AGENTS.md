@@ -33,13 +33,13 @@ The tutorials live in [`modelcontextprotocol/modelcontextprotocol`](https://gith
 
 Run `make check` before opening a pull request. It runs the linters and formatters, rebuilds every example and runs the smoke tests. `make help` lists the per-language targets, such as `make lint-go`, for when you only have some toolchains installed.
 
-| Language | Checks |
-|---|---|
-| Python | `ruff check`, `ruff format --check` |
-| TypeScript | `tsc --noEmit` |
-| Go | `gofmt -l`, `go vet` |
-| Rust | `cargo fmt --check`, `cargo clippy -D warnings` |
-| Ruby | `ruby -wc`, failing on warnings |
+| Language   | Checks                                          |
+|------------|-------------------------------------------------|
+| Python     | `ruff check`, `ruff format --check`             |
+| TypeScript | `tsc --noEmit`                                  |
+| Go         | `gofmt -l`, `go vet`                            |
+| Rust       | `cargo fmt --check`, `cargo clippy -D warnings` |
+| Ruby       | `ruby -wc`, failing on warnings                 |
 
 `make fmt` fixes formatting for Python, Go and Rust.
 
