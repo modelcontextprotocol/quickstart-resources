@@ -129,7 +129,10 @@ struct MessagesResponse {
 
 /// The `type` of a content block, when it has one.
 fn block_type(block: &Value) -> &str {
-    block.get("type").and_then(Value::as_str).unwrap_or_default()
+    block
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
 }
 
 struct MCPClient {
@@ -359,8 +362,8 @@ impl MCPClient {
         let api_key = std::env::var("ANTHROPIC_API_KEY").context("ANTHROPIC_API_KEY is not set")?;
         // The base URL is configurable for the same reason the official SDKs
         // make it configurable: to point the client at a local stand-in.
-        let base_url = std::env::var("ANTHROPIC_BASE_URL")
-            .unwrap_or_else(|_| ANTHROPIC_API_BASE.to_string());
+        let base_url =
+            std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| ANTHROPIC_API_BASE.to_string());
 
         let request = MessagesRequest {
             model: MODEL_ANTHROPIC,
@@ -460,7 +463,9 @@ async fn main() -> Result<()> {
         // Empty counts as unset, as it does in the other clients: `KEY= cmd`
         // is how the smoke test forces this path.
         if std::env::var("ANTHROPIC_API_KEY").map_or(true, |key| key.is_empty()) {
-            println!("\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:");
+            println!(
+                "\nNo ANTHROPIC_API_KEY found. To query these tools with Claude, set your API key:"
+            );
             println!("  export ANTHROPIC_API_KEY=your-api-key-here");
             return Ok(());
         }

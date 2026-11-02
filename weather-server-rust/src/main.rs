@@ -8,8 +8,8 @@ use rmcp::{
     transport::stdio,
 };
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 const NWS_API_BASE: &str = "https://api.weather.gov";
 const USER_AGENT: &str = "weather-app/1.0";
