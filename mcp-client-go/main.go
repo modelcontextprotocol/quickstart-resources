@@ -42,6 +42,9 @@ var supportedImageTypes = map[string]bool{
 func toolResultContent(result *mcp.CallToolResult) []anthropic.ToolResultBlockParamContentUnion {
 	var content []anthropic.ToolResultBlockParamContentUnion
 	text := func(s string) {
+		if s == "" {
+			return
+		}
 		content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{Text: s}})
 	}
 
@@ -49,7 +52,7 @@ func toolResultContent(result *mcp.CallToolResult) []anthropic.ToolResultBlockPa
 	for _, block := range result.Content {
 		switch b := block.(type) {
 		case *mcp.TextContent:
-			hasText = true
+			hasText = hasText || b.Text != ""
 			text(b.Text)
 		case *mcp.ImageContent:
 			if !supportedImageTypes[b.MIMEType] {
@@ -75,7 +78,7 @@ func toolResultContent(result *mcp.CallToolResult) []anthropic.ToolResultBlockPa
 	}
 
 	// A structured result SHOULD also carry serialized JSON in a text block, but
-	// only SHOULD, so serialize it when no text block came with it.
+	// only SHOULD, so serialize it when no text came with it.
 	if !hasText && result.StructuredContent != nil {
 		if data, err := json.Marshal(result.StructuredContent); err == nil {
 			text(string(data))

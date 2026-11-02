@@ -34,7 +34,7 @@ const SUPPORTED_IMAGE_TYPES = new Set<string>([
 function toolResultContent(
   result: CallToolResult,
 ): Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> {
-  const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+  let content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
   for (const block of result.content) {
     if (block.type === "text") {
       content.push({ type: "text", text: block.text });
@@ -54,11 +54,10 @@ function toolResultContent(
     }
   }
 
-  // A structured result SHOULD also carry serialized JSON in a text block, but
-  // only SHOULD, so serialize it when no text block came with it.
+  content = content.filter((block) => block.type !== "text" || block.text !== "");
   if (
     result.structuredContent !== undefined &&
-    !result.content.some((block) => block.type === "text")
+    !result.content.some((block) => block.type === "text" && block.text !== "")
   ) {
     content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
   }

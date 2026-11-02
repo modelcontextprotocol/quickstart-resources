@@ -60,12 +60,11 @@ fn tool_result_content(result: &CallToolResult) -> Vec<Value> {
         })
         .collect();
 
-    // A structured result SHOULD also carry serialized JSON in a text block,
-    // but only SHOULD, so serialize it when no text block came with it.
+    content.retain(|block| block["text"] != "");
     let has_text = result
         .content
         .iter()
-        .any(|block| matches!(block, ContentBlock::Text(_)));
+        .any(|block| matches!(block, ContentBlock::Text(text) if !text.text.is_empty()));
     if !has_text && let Some(structured) = &result.structured_content {
         content.push(json!({"type": "text", "text": structured.to_string()}));
     }

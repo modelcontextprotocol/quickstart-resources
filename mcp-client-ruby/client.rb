@@ -97,10 +97,10 @@ class MCPClient
       end
     end
 
-    # A structured result SHOULD also carry serialized JSON in a text block, but
-    # only SHOULD, so serialize it when no text block came with it.
+    content.reject! { |block| block[:text] == "" }
     structured = result["structuredContent"]
-    if !structured.nil? && blocks.none? { |block| block["type"] == "text" }
+    has_text = blocks.any? { |block| block["type"] == "text" && !block["text"].to_s.empty? }
+    if !structured.nil? && !has_text
       content << { type: "text", text: structured.to_json }
     end
 

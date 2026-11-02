@@ -43,9 +43,9 @@ def tool_result_content(result: CallToolResult) -> list[dict]:
         else:
             content.append({"type": "text", "text": f"[unsupported result type: {block.type}]"})
 
-    # A structured result SHOULD also carry serialized JSON in a text block, but
-    # only SHOULD, so serialize it when no text block came with it.
-    if result.structured_content is not None and not any(isinstance(block, TextContent) for block in result.content):
+    content = [block for block in content if block.get("text") != ""]
+    has_text = any(isinstance(block, TextContent) and block.text for block in result.content)
+    if result.structured_content is not None and not has_text:
         content.append({"type": "text", "text": json.dumps(result.structured_content)})
 
     return content

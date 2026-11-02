@@ -11,8 +11,9 @@
  *
  *  - `rejected_call` fails at the protocol level (a JSON-RPC error, not an
  *    `isError` result);
- *  - `structured_only` returns `structuredContent` and no text block;
- *  - `non_text` returns an image, a text resource and an audio block.
+ *  - `structured_only` returns `structuredContent` and an empty text block;
+ *  - `non_text` returns an image, a text resource, an audio block, and an
+ *    empty text block and resource (the Messages API rejects empty text).
  *
  * The array-rooted tool is deliberate. Clients that compile every declared
  * `outputSchema` up front — as the Go and Rust quickstart clients do — will
@@ -78,7 +79,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "structured_only",
-    description: "Mock tool returning structuredContent and no text block",
+    description: "Mock tool returning structuredContent and only empty text",
     inputSchema: { type: "object", properties: {} },
     outputSchema: {
       type: "object",
@@ -88,7 +89,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "non_text",
-    description: "Mock tool returning image, resource and audio blocks",
+    description: "Mock tool returning image, resource, audio and empty text blocks",
     inputSchema: { type: "object", properties: {} },
   },
 ];
@@ -135,7 +136,10 @@ function buildServer(): Server {
     }
 
     if (name === "structured_only") {
-      return { content: [], structuredContent: { value: STRUCTURED_ONLY_VALUE } };
+      return {
+        content: [{ type: "text", text: "" }],
+        structuredContent: { value: STRUCTURED_ONLY_VALUE },
+      };
     }
 
     if (name === "non_text") {
@@ -147,6 +151,8 @@ function buildServer(): Server {
             resource: { uri: "mock://notes", mimeType: "text/plain", text: RESOURCE_TEXT },
           },
           { type: "audio", data: "AAAA", mimeType: "audio/wav" },
+          { type: "text", text: "" },
+          { type: "resource", resource: { uri: "mock://empty", mimeType: "text/plain", text: "" } },
         ],
       };
     }

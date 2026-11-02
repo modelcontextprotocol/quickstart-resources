@@ -30,7 +30,7 @@ The fake API picks a script from the query text and checks every request the cli
 - **parallel tools** — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then an answer. `tools` must be passed on every call, `max_tokens` must be 10000 (room for the model's adaptive thinking), every `tool_use` must get a `tool_result` in a single following user message with matching `tool_use_id`s, and the MCP `isError` result must be forwarded as `is_error`.
 - **ten tool turns** — exactly `MAX_TOOL_TURNS` tool calls, then an answer. The client must print the answer and no stop notice: nothing was cut short.
 - **endless tool turns** — a tool call on every response. The client must stop after `MAX_TOOL_TURNS` rounds, print `[Stopped after 10 tool-use turns]` once, and make no further call.
-- **tool result contents** — one call to each of three tools whose results need translating before they reach the model. A call the server rejects with a JSON-RPC error must come back as a `tool_result` with `is_error` set, and the query must go on. A result with `structuredContent` and no text block must arrive as its JSON. A result with an image, a text resource and an audio block must arrive as an Anthropic base64 image block, the resource's text, and the placeholder `[unsupported result type: audio]`.
+- **tool result contents** — one call to each of three tools whose results need translating before they reach the model. A call the server rejects with a JSON-RPC error must come back as a `tool_result` with `is_error` set, and the query must go on. A result with `structuredContent` and only an empty text block must arrive as its JSON. A result with an image, a text resource and an audio block must arrive as an Anthropic base64 image block, the resource's text, and the placeholder `[unsupported result type: audio]`. Empty text from a text block or a resource must be dropped: like the real API, the fake one fails any request that carries an empty text block.
 
 Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, or drops what a tool returned passes the no-key test and fails this one.
 
@@ -104,7 +104,7 @@ A minimal MCP server that verifies clients call the `tools/list` method. Used to
 
 It advertises two tools whose output schemas cover both shapes a structured result can take: an object root, and an array root. The array-rooted one is deliberate — a client that compiles every declared `outputSchema` up front, as the Go and Rust quickstart clients do, will fail here if it assumes an output schema is always `{"type": "object"}`.
 
-Three more tools serve the tool-loop test's **tool result contents** query: `rejected_call` fails with a JSON-RPC error, `structured_only` returns `structuredContent` and no text block, and `non_text` returns an image, a text resource and an audio block. The values the test looks for are in `mock-values.ts`.
+Three more tools serve the tool-loop test's **tool result contents** query: `rejected_call` fails with a JSON-RPC error, `structured_only` returns `structuredContent` and an empty text block, and `non_text` returns an image, a text resource, an audio block, and an empty text block and resource. The values the test looks for are in `mock-values.ts`.
 
 **Usage**:
 

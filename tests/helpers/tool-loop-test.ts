@@ -25,9 +25,10 @@
  *  - "tool result contents": three tool calls whose results need translating
  *    before they reach the model. One the server rejects with a JSON-RPC error
  *    must come back as an is_error tool_result, not end the query. One with
- *    only structuredContent must arrive as JSON. One with image, resource and
- *    audio blocks must arrive as an image block, the resource's text, and a
- *    placeholder for the audio.
+ *    structuredContent and only empty text must arrive as JSON. One with image,
+ *    resource and audio blocks must arrive as an image block, the resource's
+ *    text, and a placeholder for the audio. Empty text must be dropped: like
+ *    the real API, this one rejects an empty text block in any request.
  *
  * A client that does one tool round and stops, drops `tools` on the second
  * call, sends one tool_result per message, or gets the turn cap wrong fails
@@ -102,6 +103,15 @@ function textOf(content: unknown): string {
       .join("\n");
   }
   return "";
+}
+
+/** Whether any text block in the request, at any depth, is empty. */
+function hasEmptyText(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasEmptyText);
+  if (value === null || typeof value !== "object") return false;
+  const block = value as Record<string, unknown>;
+  if (block.type === "text" && block.text === "") return true;
+  return Object.values(block).some(hasEmptyText);
 }
 
 /** The scenario a request belongs to: named by its most recent user query. */
@@ -230,7 +240,7 @@ function respondContents(n: number, request: Request): Block[] {
     const structured = byId("tc_2");
     check(
       textOf(structured?.content).includes(STRUCTURED_ONLY_VALUE),
-      `${label}: structuredContent without a text block is forwarded as JSON`,
+      `${label}: structuredContent with only empty text is forwarded as JSON`,
     );
 
     const nonText = byId("tc_3");
@@ -303,6 +313,10 @@ function respond(request: Request): Block[] {
   check(
     Array.isArray(request.tools) && request.tools.length === MOCK_TOOL_COUNT,
     `${scenario} call ${n}: tools are passed (got ${request.tools?.length ?? "none"})`,
+  );
+  check(
+    !hasEmptyText(request.messages),
+    `${scenario} call ${n}: no text block is empty (the API rejects them)`,
   );
   check(
     request.max_tokens === EXPECTED_MAX_TOKENS,
