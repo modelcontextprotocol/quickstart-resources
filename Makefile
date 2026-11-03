@@ -21,7 +21,9 @@ help:
 	@echo "Per language: lint-{python,typescript,go,rust,ruby},"
 	@echo "  fmt-{python,go,rust}, build-{typescript,go,rust}"
 
-check: lint test
+# Lint first, then test, even under `make -j`: both install npm packages.
+check: lint
+	$(MAKE) test
 
 lint: lint-python lint-typescript lint-go lint-rust lint-ruby
 
@@ -71,10 +73,11 @@ lint-go:
 fmt-go:
 	@set -e; for d in $(GO_DIRS); do (cd $$d && gofmt -w .); done
 
-# The binary names are the ones smoke-test.sh runs.
+# The binary names are the ones smoke-test.sh runs. `go build -o` adds no
+# `.exe` on Windows, so add it to replace the binary the smoke tests pick.
 build-go:
-	cd weather-server-go && go build -o server .
-	cd mcp-client-go && go build -o mcp-client-go .
+	cd weather-server-go && go build -o server$$(go env GOEXE) .
+	cd mcp-client-go && go build -o mcp-client-go$$(go env GOEXE) .
 
 lint-rust:
 	@set -e; for d in $(RUST_DIRS); do \
