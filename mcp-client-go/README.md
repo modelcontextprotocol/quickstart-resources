@@ -32,7 +32,7 @@ go run main.go ../weather-server-go/weather
 go run main.go uv --directory ../weather-server-python run weather.py
 ```
 
-Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. Type `quit` to exit.
+Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. The client keeps the conversation for the whole session, so a follow-up such as "And the alerts for that state?" works. Type `clear` to start a new conversation, or `quit` to exit.
 
 Without an `ANTHROPIC_API_KEY`, the client still connects, prints the server's tools, and exits — useful for verifying the MCP wiring without credentials.
 
@@ -43,3 +43,5 @@ The SDK does not validate tool output, so this client compiles each declared `ou
 The two channels go to different readers: `Content` is forwarded to the model, while `StructuredContent` is used as data — the client counts the items it returns. See [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content).
 
 Before a tool result goes to the model, the client converts it to the Messages API's block types. Text stays text, a PNG, JPEG, GIF or WebP image becomes an image block, and a text resource becomes its text. Anything else, such as audio, becomes a placeholder like `[unsupported result type: audio]`, so the model knows something was there. Empty text is dropped, because the Messages API rejects empty text blocks. A result with structured content and no text is sent as its JSON. A call the server rejects goes back to the model as a failed tool result, so it can correct itself, rather than ending the query.
+
+Every request sends the same short system prompt. When a reply stops early, the client says so: `[Reply cut off at the max_tokens limit]` when it ran out of tokens, and `[The model declined to answer; the query is not kept in history]` when the model refused. A reply that was cut off, refused or stopped at the tool-turn limit is not added to the history, so the next request stays valid.

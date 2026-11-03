@@ -19,7 +19,7 @@ Each example lives in its own directory with its own README covering prerequisit
 
 All servers communicate over stdio and expose the same two tools: `get_forecast` and `get_alerts` (or `get-forecast` and `get-alerts` in TypeScript).
 
-All clients launch a server, list its tools, and start an interactive chat loop in which Claude can call those tools. The Python, TypeScript, and Ruby clients take a path to a server script; the Go and Rust clients take the command to run, plus any arguments.
+All clients launch a server, list its tools, and start an interactive chat loop in which Claude can call those tools and the conversation is kept until you type `clear` or `quit`. The Python, TypeScript, and Ruby clients take a path to a server script; the Go and Rust clients take the command to run, plus any arguments.
 
 Note: These example clients need an `ANTHROPIC_API_KEY` to operate. Without a key, each client still connects and lists the server's tools before exiting, so you can verify the MCP wiring without credentials.
 

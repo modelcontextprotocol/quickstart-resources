@@ -10,7 +10,7 @@
  *  - a fake Anthropic Messages API, started here on a loopback port and handed
  *    to the client through ANTHROPIC_BASE_URL, which every quickstart SDK reads.
  *
- * Four queries are piped into one client process, and the fake API picks the
+ * Seven queries are piped into one client process, and the fake API picks the
  * script from the query text:
  *
  *  - "parallel tools": text plus two tool_use blocks in one response, then one
@@ -29,6 +29,15 @@
  *    resource and audio blocks must arrive as an image block, the resource's
  *    text, and a placeholder for the audio. Empty text must be dropped: like
  *    the real API, this one rejects an empty text block in any request.
+ *  - "refused query": a refusal. The client must print a notice and drop the
+ *    query from its history.
+ *  - "cut off reply": a reply stopped by max_tokens. The client must print the
+ *    partial text and a notice.
+ *  - "after clear", typed after `clear`: the history must be empty again.
+ *
+ * Every request must carry the same system prompt, every query after the first
+ * must carry the earlier conversation, and the history must be one the API
+ * accepts: every tool_use answered by a tool_result in the next message.
  *
  * A client that does one tool round and stops, drops `tools` on the second
  * call, sends one tool_result per message, or gets the turn cap wrong fails
@@ -57,6 +66,9 @@ const QUERIES = {
   atLimit: "ten tool turns",
   overrun: "endless tool turns",
   contents: "tool result contents",
+  refused: "refused query",
+  cutOff: "cut off reply",
+  afterClear: "after clear",
 } as const;
 type Scenario = keyof typeof QUERIES;
 
@@ -65,12 +77,35 @@ const FINAL_ANSWER: Record<Scenario, string> = {
   atLimit: "Answered at the limit.",
   overrun: "never sent",
   contents: "Contents handled.",
+  refused: "never sent",
+  cutOff: "Partial reply",
+  afterClear: "Fresh start.",
 };
+
+/** What the test types, in order: every query, with `clear` before the last. */
+const INPUT = [
+  QUERIES.parallel,
+  QUERIES.atLimit,
+  QUERIES.overrun,
+  QUERIES.contents,
+  QUERIES.refused,
+  QUERIES.cutOff,
+  "clear",
+  QUERIES.afterClear,
+  "quit",
+];
+
+/** SYSTEM_PROMPT in every client. */
+const SYSTEM_PROMPT =
+  "You are a helpful assistant. Use the available tools when they help answer the question.";
+const REFUSAL_NOTICE = "[The model declined to answer; the query is not kept in history]";
+const MAX_TOKENS_NOTICE = "[Reply cut off at the max_tokens limit]";
 
 type Block = Record<string, unknown> & { type: string };
 type Message = { role: string; content: string | Block[] };
 type Request = {
   model?: string;
+  system?: unknown;
   max_tokens?: number;
   tools?: unknown[];
   messages: Message[];
@@ -78,7 +113,15 @@ type Request = {
 
 const failures: string[] = [];
 let passed = 0;
-const calls: Record<Scenario, number> = { parallel: 0, atLimit: 0, overrun: 0, contents: 0 };
+const calls: Record<Scenario, number> = {
+  parallel: 0,
+  atLimit: 0,
+  overrun: 0,
+  contents: 0,
+  refused: 0,
+  cutOff: 0,
+  afterClear: 0,
+};
 
 function check(condition: boolean, what: string) {
   if (condition) {
@@ -112,6 +155,37 @@ function hasEmptyText(value: unknown): boolean {
   const block = value as Record<string, unknown>;
   if (block.type === "text" && block.text === "") return true;
   return Object.values(block).some(hasEmptyText);
+}
+
+/** Whether a message with this role and this text is in the history. */
+function historyHas(messages: Message[], role: string, value: string): boolean {
+  return messages.some(
+    (message) => message.role === role && textOf(message.content).includes(value),
+  );
+}
+
+/**
+ * Why the API would reject this history, if it would. Consecutive user
+ * messages are fine (the API joins them); an unanswered tool_use is not.
+ */
+function historyProblem(messages: Message[]): string | undefined {
+  if (messages[0]?.role !== "user") return "history must start with a user message";
+  if (messages[messages.length - 1]?.role !== "user") {
+    return "history must end with a user message";
+  }
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+    if (messages[i - 1]?.role === "assistant") return `two assistant messages in a row at ${i}`;
+    const blocks = Array.isArray(message.content) ? message.content : [];
+    const ids = blocks.filter((block) => block.type === "tool_use").map((block) => block.id);
+    if (ids.length === 0) continue;
+    const answered = toolResultsOf(messages[i + 1]).map((block) => block.tool_use_id);
+    if (ids.sort().join(",") !== answered.sort().join(",")) {
+      return `tool_use in message ${i} is not answered by the next message`;
+    }
+  }
+  return undefined;
 }
 
 /** The scenario a request belongs to: named by its most recent user query. */
@@ -215,6 +289,11 @@ function respondContents(n: number, request: Request): Block[] {
   const last = request.messages[request.messages.length - 1];
 
   if (n === 1) {
+    check(
+      historyHas(request.messages, "user", QUERIES.parallel) &&
+        historyHas(request.messages, "assistant", FINAL_ANSWER.parallel),
+      `${label}: earlier queries and answers are kept in history`,
+    );
     return [
       toolUse("tc_1", "rejected_call", {}),
       toolUse("tc_2", "structured_only", {}),
@@ -302,13 +381,23 @@ function respondTurnLimit(scenario: "atLimit" | "overrun", n: number, request: R
     : [toolUse(`${prefix}_${n}`, "get_alerts", { state: "NY" })];
 }
 
-function respond(request: Request): Block[] {
+type Reply = { content: Block[]; stopReason?: string };
+
+function respond(request: Request): Reply {
   const scenario = scenarioOf(request.messages);
   if (!scenario) {
     check(false, "request belongs to a known query");
-    return [text("unknown query")];
+    return { content: [text("unknown query")] };
   }
   const n = ++calls[scenario];
+  const label = `${scenario} call ${n}`;
+
+  check(
+    textOf(request.system) === SYSTEM_PROMPT,
+    `${label}: system prompt is sent (got ${JSON.stringify(request.system)})`,
+  );
+  const problem = historyProblem(request.messages);
+  check(problem === undefined, `${label}: history is valid (${problem})`);
 
   check(
     Array.isArray(request.tools) && request.tools.length === MOCK_TOOL_COUNT,
@@ -323,9 +412,32 @@ function respond(request: Request): Block[] {
     `${scenario} call ${n}: max_tokens is ${EXPECTED_MAX_TOKENS} (got ${request.max_tokens})`,
   );
 
-  if (scenario === "parallel") return respondParallel(n, request);
-  if (scenario === "contents") return respondContents(n, request);
-  return respondTurnLimit(scenario, n, request);
+  if (scenario === "refused") {
+    // A refusal before any output comes back with no content.
+    return { content: [], stopReason: "refusal" };
+  }
+  if (scenario === "cutOff") {
+    check(
+      !historyHas(request.messages, "user", QUERIES.refused),
+      `${label}: the refused query is not kept in history`,
+    );
+    check(
+      historyHas(request.messages, "assistant", FINAL_ANSWER.contents),
+      `${label}: earlier answers are still kept in history`,
+    );
+    return { content: [text(FINAL_ANSWER.cutOff)], stopReason: "max_tokens" };
+  }
+  if (scenario === "afterClear") {
+    check(
+      request.messages.length === 1,
+      `${label}: history is empty after clear (got ${request.messages.length} messages)`,
+    );
+    return { content: [text(FINAL_ANSWER.afterClear)] };
+  }
+
+  if (scenario === "parallel") return { content: respondParallel(n, request) };
+  if (scenario === "contents") return { content: respondContents(n, request) };
+  return { content: respondTurnLimit(scenario, n, request) };
 }
 
 function startFakeApi(): Promise<http.Server> {
@@ -341,10 +453,9 @@ function startFakeApi(): Promise<http.Server> {
         res.writeHead(400).end();
         return;
       }
-      const content = respond(request);
-      const stopReason = content.some((block) => block.type === "tool_use")
-        ? "tool_use"
-        : "end_turn";
+      const { content, stopReason: scripted } = respond(request);
+      const stopReason =
+        scripted ?? (content.some((block) => block.type === "tool_use") ? "tool_use" : "end_turn");
       res.setHeader("content-type", "application/json");
       res.end(
         JSON.stringify({
@@ -378,7 +489,7 @@ function runClient(
     // Type each line only once the client shows its prompt, as a user would.
     // Lines written ahead of time are dropped by readline-based clients, and
     // closing stdin early ends the session before the later queries.
-    const lines = [...Object.values(QUERIES), "quit"];
+    const lines = [...INPUT];
     let prompts = 0;
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
@@ -433,6 +544,14 @@ function checkOutput(code: number | null, stdout: string) {
 
   check(calls.contents === 2, `contents: API was called 2 times (got ${calls.contents})`);
   check(stdout.includes(FINAL_ANSWER.contents), "contents: client printed the final answer");
+
+  check(calls.refused === 1, `refused: API was called once (got ${calls.refused})`);
+  check(stdout.includes(REFUSAL_NOTICE), "refused: client printed the refusal notice");
+  check(calls.cutOff === 1, `cut off: API was called once (got ${calls.cutOff})`);
+  check(stdout.includes(FINAL_ANSWER.cutOff), "cut off: client printed the partial reply");
+  check(stdout.includes(MAX_TOKENS_NOTICE), "cut off: client printed the max_tokens notice");
+  check(calls.afterClear === 1, `after clear: API was called once (got ${calls.afterClear})`);
+  check(stdout.includes(FINAL_ANSWER.afterClear), "after clear: client printed the answer");
 }
 
 async function main() {

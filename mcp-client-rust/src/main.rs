@@ -18,6 +18,8 @@ const MODEL_ANTHROPIC: &str = "claude-sonnet-5";
 /// plus the reply, so leave room for both.
 const MAX_TOKENS: u32 = 10000;
 const MAX_TOOL_TURNS: usize = 10;
+const SYSTEM_PROMPT: &str =
+    "You are a helpful assistant. Use the available tools when they help answer the question.";
 
 const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -118,6 +120,7 @@ struct ToolDefinition {
 struct MessagesRequest<'a> {
     model: &'a str,
     max_tokens: u32,
+    system: &'a str,
     messages: &'a [Message],
     tools: &'a [ToolDefinition],
 }
@@ -125,6 +128,7 @@ struct MessagesRequest<'a> {
 #[derive(Deserialize)]
 struct MessagesResponse {
     content: Vec<Value>,
+    stop_reason: Option<String>,
 }
 
 /// The `type` of a content block, when it has one.
@@ -139,6 +143,7 @@ struct MCPClient {
     http: reqwest::Client,
     session: Option<RunningService<RoleClient, ClientConfig>>,
     tools: Vec<ToolDefinition>,
+    messages: Vec<Message>,
     /// Compiled `outputSchema` per tool name. rmcp does not validate results,
     /// so this client does it with the `jsonschema` crate.
     output_schemas: HashMap<String, Validator>,
@@ -153,6 +158,7 @@ impl MCPClient {
                 .context("Failed to build HTTP client")?,
             session: None,
             tools: Vec::new(),
+            messages: Vec::new(),
             output_schemas: HashMap::new(),
         })
     }
@@ -247,34 +253,52 @@ impl MCPClient {
             .as_ref()
             .context("Client is not connected to any server")?;
 
-        let mut messages = vec![Message::user(vec![json!({"type": "text", "text": query})])];
+        let history_length = self.messages.len();
+        self.messages
+            .push(Message::user(vec![json!({"type": "text", "text": query})]));
         let mut final_text = Vec::new();
 
-        // Initial Claude API call with tools
-        let mut content = self.request_model(&messages).await?;
+        for turn in 0..=MAX_TOOL_TURNS {
+            let response = self.request_model(&self.messages).await?;
+            let stop_reason = response.stop_reason.as_deref().unwrap_or_default();
 
-        // Keep calling tools until Claude answers without one, up to a cap.
-        for _ in 0..MAX_TOOL_TURNS {
-            let mut tool_uses = Vec::new();
-            for block in &content {
-                match block_type(block) {
-                    "text" => {
-                        if let Some(text) = block.get("text").and_then(Value::as_str) {
-                            final_text.push(text.to_string());
-                        }
-                    }
-                    "tool_use" => tool_uses.push(block.clone()),
-                    _ => {}
+            if stop_reason == "refusal" {
+                // Drop the refused query so a follow-up doesn't send it again.
+                self.messages.truncate(history_length);
+                final_text.push(
+                    "[The model declined to answer; the query is not kept in history]".to_string(),
+                );
+                break;
+            }
+
+            for block in &response.content {
+                if block_type(block) == "text"
+                    && let Some(text) = block.get("text").and_then(Value::as_str)
+                {
+                    final_text.push(text.to_string());
                 }
             }
 
-            if tool_uses.is_empty() {
-                return Ok(final_text.join("\n"));
+            if stop_reason == "max_tokens" {
+                final_text.push("[Reply cut off at the max_tokens limit]".to_string());
+                break;
+            }
+            if stop_reason != "tool_use" {
+                self.messages.push(Message::assistant(response.content));
+                break;
+            }
+            if turn == MAX_TOOL_TURNS {
+                final_text.push(format!("[Stopped after {MAX_TOOL_TURNS} tool-use turns]"));
+                break;
             }
 
             // Execute every tool call in this response and collect the results
             let mut tool_results = Vec::new();
-            for tool_use in &tool_uses {
+            for tool_use in response
+                .content
+                .iter()
+                .filter(|block| block_type(block) == "tool_use")
+            {
                 let name = tool_use
                     .get("name")
                     .and_then(Value::as_str)
@@ -325,40 +349,19 @@ impl MCPClient {
                 }));
             }
 
-            // Append the assistant's response and all tool results, in one user
-            // message, to the history. Every tool_use needs a matching
-            // tool_result, and the assistant's blocks go back as they arrived.
-            messages.push(Message::assistant(content));
-            messages.push(Message::user(tool_results));
-
-            content = self.request_model(&messages).await?;
-        }
-
-        // The turn cap was hit. Keep the last response's text. If it asked for
-        // more tools, say they were not run.
-        let mut wants_tools = false;
-        for block in &content {
-            match block_type(block) {
-                "text" => {
-                    if let Some(text) = block.get("text").and_then(Value::as_str) {
-                        final_text.push(text.to_string());
-                    }
-                }
-                "tool_use" => wants_tools = true,
-                _ => {}
-            }
-        }
-        if wants_tools {
-            final_text.push(format!("[Stopped after {MAX_TOOL_TURNS} tool-use turns]"));
+            // Every tool_use needs a matching tool_result, all in one user
+            // message, and the assistant's blocks go back as they arrived.
+            self.messages.push(Message::assistant(response.content));
+            self.messages.push(Message::user(tool_results));
         }
 
         Ok(final_text.join("\n"))
     }
 
-    /// Call Claude with the current history and return the content blocks of
-    /// its reply, untouched. Tools are passed on every call so Claude can keep
-    /// calling them across turns.
-    async fn request_model(&self, messages: &[Message]) -> Result<Vec<Value>> {
+    /// Call Claude with the current history and return its reply, with the
+    /// content blocks untouched. Tools are passed on every call so Claude can
+    /// keep calling them across turns.
+    async fn request_model(&self, messages: &[Message]) -> Result<MessagesResponse> {
         let api_key = std::env::var("ANTHROPIC_API_KEY").context("ANTHROPIC_API_KEY is not set")?;
         // The base URL is configurable for the same reason the official SDKs
         // make it configurable: to point the client at a local stand-in.
@@ -368,6 +371,7 @@ impl MCPClient {
         let request = MessagesRequest {
             model: MODEL_ANTHROPIC,
             max_tokens: MAX_TOKENS,
+            system: SYSTEM_PROMPT,
             messages,
             tools: &self.tools,
         };
@@ -391,14 +395,12 @@ impl MCPClient {
             bail!("Anthropic request failed with {status}: {body}");
         }
 
-        let parsed: MessagesResponse =
-            serde_json::from_str(&body).context("Unable to parse the Anthropic response")?;
-        Ok(parsed.content)
+        serde_json::from_str(&body).context("Unable to parse the Anthropic response")
     }
 
     async fn chat_loop(&mut self) -> Result<()> {
         println!("\nMCP Client Started!");
-        println!("Type your queries or 'quit' to exit.");
+        println!("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.");
 
         let mut stdin = BufReader::new(io::stdin());
         let mut input = String::new();
@@ -417,6 +419,11 @@ impl MCPClient {
                 break;
             }
             if query.is_empty() {
+                continue;
+            }
+            if query.eq_ignore_ascii_case("clear") {
+                self.messages.clear();
+                println!("\nConversation cleared.");
                 continue;
             }
 

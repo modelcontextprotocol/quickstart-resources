@@ -16,6 +16,7 @@ ANTHROPIC_MODEL = "claude-sonnet-5"
 # plus the reply, so leave room for both.
 MAX_TOKENS = 10000
 MAX_TOOL_TURNS = 10
+SYSTEM_PROMPT = "You are a helpful assistant. Use the available tools when they help answer the question."
 # Image types the Messages API accepts.
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
@@ -57,6 +58,7 @@ class MCPClient:
         self.client: Client | None = None
         self.exit_stack = AsyncExitStack()
         self._anthropic: Anthropic | None = None
+        self.messages: list[dict] = []
 
     @property
     def anthropic(self) -> Anthropic:
@@ -97,7 +99,8 @@ class MCPClient:
 
     async def process_query(self, query: str) -> str:
         """Process a query using Claude and available tools"""
-        messages = [{"role": "user", "content": query}]
+        history_length = len(self.messages)
+        self.messages.append({"role": "user", "content": query})
 
         tools_response = await self.client.list_tools()
         available_tools = [
@@ -107,23 +110,35 @@ class MCPClient:
 
         final_text = []
 
-        response = self.anthropic.messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=MAX_TOKENS, messages=messages, tools=available_tools
-        )
+        for turn in range(MAX_TOOL_TURNS + 1):
+            response = self.anthropic.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=MAX_TOKENS,
+                system=SYSTEM_PROMPT,
+                messages=self.messages,
+                tools=available_tools,
+            )
 
-        for _ in range(MAX_TOOL_TURNS):
-            tool_uses = []
-            for content in response.content:
-                if content.type == "text":
-                    final_text.append(content.text)
-                elif content.type == "tool_use":
-                    tool_uses.append(content)
+            if response.stop_reason == "refusal":
+                # Drop the refused query so a follow-up doesn't send it again.
+                del self.messages[history_length:]
+                final_text.append("[The model declined to answer; the query is not kept in history]")
+                break
 
-            if not tool_uses:
-                return "\n".join(final_text)
+            final_text.extend(content.text for content in response.content if content.type == "text")
+
+            if response.stop_reason == "max_tokens":
+                final_text.append("[Reply cut off at the max_tokens limit]")
+                break
+            if response.stop_reason != "tool_use":
+                self.messages.append({"role": "assistant", "content": response.content})
+                break
+            if turn == MAX_TOOL_TURNS:
+                final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
+                break
 
             tool_results = []
-            for tool_use in tool_uses:
+            for tool_use in (content for content in response.content if content.type == "tool_use"):
                 final_text.append(f"[Calling tool {tool_use.name} with args {tool_use.input}]")
                 try:
                     # call_tool validates the result against the declared schema.
@@ -156,27 +171,15 @@ class MCPClient:
                     }
                 )
 
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
+            self.messages.append({"role": "assistant", "content": response.content})
+            self.messages.append({"role": "user", "content": tool_results})
 
-            response = self.anthropic.messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=MAX_TOKENS,
-                messages=messages,
-                tools=available_tools,
-            )
-
-        # The turn cap was hit. Keep the last response's text. If it asked for
-        # more tools, say they were not run.
-        final_text.extend(content.text for content in response.content if content.type == "text")
-        if any(content.type == "tool_use" for content in response.content):
-            final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
         return "\n".join(final_text)
 
     async def chat_loop(self):
         """Run an interactive chat loop"""
         print("\nMCP Client Started!")
-        print("Type your queries or 'quit' to exit.")
+        print("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.")
 
         while True:
             # input() blocks, so keep it off the event loop.
@@ -187,6 +190,10 @@ class MCPClient:
 
             if query.lower() == "quit":
                 break
+            if query.lower() == "clear":
+                self.messages.clear()
+                print("\nConversation cleared.")
+                continue
 
             try:
                 response = await self.process_query(query)

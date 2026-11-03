@@ -156,12 +156,12 @@ test_mcp_client_rust() {
 
 # The tool-loop tests drive the chat loop itself, which the no-key tests never
 # reach. The helper starts a fake Anthropic API on a loopback port, points the
-# client at it through ANTHROPIC_BASE_URL, and types four queries at the
+# client at it through ANTHROPIC_BASE_URL, and types seven queries at the
 # client's prompt: two parallel tool calls then a failing one, exactly ten
-# tool turns then an answer, tool calls past the turn limit, and three tools
-# whose results need translating (a rejected call, structured content with no
-# text, and non-text blocks). It checks every request the client sends; see
-# tests/README.md for what is checked.
+# tool turns then an answer, tool calls past the turn limit, three tools whose
+# results need translating, a refusal, a reply cut off by max_tokens, and one
+# after `clear`. It checks every request the client sends, the conversation
+# history included; see tests/README.md for what is checked.
 
 # Test: Python MCP client tool loop
 test_tool_loop_python() {

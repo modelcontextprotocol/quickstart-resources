@@ -11,6 +11,7 @@ class MCPClient
   # plus the reply, so leave room for both.
   MAX_TOKENS = 10000
   MAX_TOOL_TURNS = 10
+  SYSTEM_PROMPT = "You are a helpful assistant. Use the available tools when they help answer the question."
   # Image types the Messages API accepts.
   SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"].freeze
 
@@ -18,6 +19,7 @@ class MCPClient
     @mcp_client = nil
     @transport = nil
     @anthropic_client = nil
+    @messages = []
   end
 
   def connect_to_server(server_script_path)
@@ -50,7 +52,7 @@ class MCPClient
   def chat_loop
     puts <<~MESSAGE
       MCP Client Started!
-      Type your queries or 'quit' to exit.
+      Type your queries, 'clear' to forget the conversation, or 'quit' to exit.
     MESSAGE
 
     loop do
@@ -62,6 +64,12 @@ class MCPClient
       query = line.chomp.strip
       break if query.downcase == "quit"
       next if query.empty?
+
+      if query.downcase == "clear"
+        @messages = []
+        puts "\nConversation cleared."
+        next
+      end
 
       begin
         response = process_query(query)
@@ -108,7 +116,8 @@ class MCPClient
   end
 
   def process_query(query)
-    messages = [{ role: "user", content: query }]
+    history_length = @messages.length
+    @messages << { role: "user", content: query }
 
     available_tools = @mcp_client.tools.map do |tool|
       { name: tool.name, description: tool.description, input_schema: tool.input_schema }
@@ -116,24 +125,40 @@ class MCPClient
 
     final_text = []
 
-    # Initial Claude API call with tools.
-    response = chat(messages, available_tools)
+    (0..MAX_TOOL_TURNS).each do |turn|
+      # Tools are passed on every call so Claude can keep calling them.
+      response = anthropic_client.messages.create(
+        model: ANTHROPIC_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: SYSTEM_PROMPT,
+        messages: @messages,
+        tools: available_tools
+      )
 
-    # Keep calling tools until Claude answers without one, up to a cap.
-    MAX_TOOL_TURNS.times do
-      tool_uses = []
-      response.content.each do |block|
-        case block
-        when Anthropic::Models::TextBlock
-          final_text << block.text
-        when Anthropic::Models::ToolUseBlock
-          tool_uses << block
-        end
+      if response.stop_reason == :refusal
+        # Drop the refused query so a follow-up doesn't send it again.
+        @messages.slice!(history_length..)
+        final_text << "[The model declined to answer; the query is not kept in history]"
+        break
       end
 
-      return final_text.join("\n") if tool_uses.empty?
+      response.content.grep(Anthropic::Models::TextBlock) { |block| final_text << block.text }
+
+      if response.stop_reason == :max_tokens
+        final_text << "[Reply cut off at the max_tokens limit]"
+        break
+      end
+      if response.stop_reason != :tool_use
+        @messages << { role: "assistant", content: assistant_content(response) }
+        break
+      end
+      if turn == MAX_TOOL_TURNS
+        final_text << "[Stopped after #{MAX_TOOL_TURNS} tool-use turns]"
+        break
+      end
 
       # Execute every tool call in this response and collect the results.
+      tool_uses = response.content.grep(Anthropic::Models::ToolUseBlock)
       tool_results = tool_uses.map do |tool_use|
         final_text << "[Calling tool #{tool_use.name} with args #{tool_use.input.to_json}]"
         begin
@@ -168,22 +193,11 @@ class MCPClient
         }
       end
 
-      # Append the assistant's response and all tool results, in one user
-      # message, to the history. Every tool_use needs a matching tool_result.
-      messages << { role: "assistant", content: assistant_content(response) }
-      messages << { role: "user", content: tool_results }
-
-      response = chat(messages, available_tools)
+      # Every tool_use needs a matching tool_result, all in one user message.
+      @messages << { role: "assistant", content: assistant_content(response) }
+      @messages << { role: "user", content: tool_results }
     end
 
-    # The turn cap was hit. Keep the last response's text. If it asked for
-    # more tools, say they were not run.
-    response.content.each do |block|
-      final_text << block.text if block.is_a?(Anthropic::Models::TextBlock)
-    end
-    if response.content.any?(Anthropic::Models::ToolUseBlock)
-      final_text << "[Stopped after #{MAX_TOOL_TURNS} tool-use turns]"
-    end
     final_text.join("\n")
   end
 
@@ -203,16 +217,6 @@ class MCPClient
         { type: "redacted_thinking", data: block.data }
       end
     end
-  end
-
-  # Tools are passed on every call so Claude can keep calling them across turns.
-  def chat(messages, tools)
-    anthropic_client.messages.create(
-      model: ANTHROPIC_MODEL,
-      max_tokens: MAX_TOKENS,
-      messages: messages,
-      tools: tools
-    )
   end
 
   def anthropic_client
