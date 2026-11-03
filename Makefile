@@ -95,6 +95,7 @@ build-rust:
 lint-ruby:
 	@set -e; for f in $(RUBY_FILES); do \
 		echo "== ruby -wc $$f"; \
-		out=$$(ruby -wc $$f 2>&1); echo "$$out"; \
+		out=$$(ruby -wc $$f 2>&1) || { echo "$$out"; exit 1; }; \
+		echo "$$out"; \
 		if echo "$$out" | grep -q 'warning:'; then exit 1; fi; \
 	done
