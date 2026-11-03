@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { Client } from "@modelcontextprotocol/client";
+import { Client, ProtocolError } from "@modelcontextprotocol/client";
+import type { CallToolResult } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import readline from "readline/promises";
 
@@ -13,6 +14,56 @@ const ANTHROPIC_MODEL = "claude-sonnet-5";
 // plus the reply, so leave room for both.
 const MAX_TOKENS = 10000;
 const MAX_TOOL_TURNS = 10;
+
+type ImageMediaType = Anthropic.Base64ImageSource["media_type"];
+// Image types the Messages API accepts.
+const SUPPORTED_IMAGE_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+] satisfies ImageMediaType[]);
+
+/**
+ * Translate an MCP tool result into content for an Anthropic tool_result.
+ *
+ * MCP and Anthropic content blocks differ, so each kind is converted. A kind
+ * the model cannot take becomes a placeholder rather than vanishing, so the
+ * model knows something was there.
+ */
+function toolResultContent(
+  result: CallToolResult,
+): Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> {
+  let content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+  for (const block of result.content) {
+    if (block.type === "text") {
+      content.push({ type: "text", text: block.text });
+    } else if (block.type === "image" && SUPPORTED_IMAGE_TYPES.has(block.mimeType)) {
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: block.mimeType as ImageMediaType,
+          data: block.data,
+        },
+      });
+    } else if (block.type === "resource" && "text" in block.resource) {
+      content.push({ type: "text", text: block.resource.text });
+    } else {
+      content.push({ type: "text", text: `[unsupported result type: ${block.type}]` });
+    }
+  }
+
+  content = content.filter((block) => block.type !== "text" || block.text !== "");
+  if (
+    result.structuredContent !== undefined &&
+    !result.content.some((block) => block.type === "text" && block.text !== "")
+  ) {
+    content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
+  }
+
+  return content;
+}
 
 class MCPClient {
   private mcp: Client;
@@ -123,11 +174,27 @@ class MCPClient {
         finalText.push(
           `[Calling tool ${toolUse.name} with args ${JSON.stringify(toolArgs)}]`,
         );
-        // callTool validates the result against the declared schema.
-        const result = await this.mcp.callTool({
-          name: toolUse.name,
-          arguments: toolArgs,
-        });
+        let result: CallToolResult;
+        try {
+          // callTool validates the result against the declared schema.
+          result = await this.mcp.callTool({
+            name: toolUse.name,
+            arguments: toolArgs,
+          });
+        } catch (error) {
+          if (!(error instanceof ProtocolError)) throw error;
+          // A rejected call is the model's mistake to correct, so it goes back
+          // as a failed tool_result rather than ending the query. Every
+          // tool_use still needs a matching result.
+          finalText.push(`[${toolUse.name} failed: ${error.message}]`);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: `Tool call ${toolUse.name} failed: ${error.message}`,
+            is_error: true,
+          });
+          continue;
+        }
 
         // structuredContent is data the application can use directly.
         if (Array.isArray(result.structuredContent)) {
@@ -136,15 +203,10 @@ class MCPClient {
           );
         }
 
-        // content is a list of block types; forward only the text ones. MCP
-        // and Anthropic block shapes differ, so other kinds need converting.
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: result.content
-            .filter((block) => block.type === "text")
-            .map((block) => block.text)
-            .join("\n"),
+          content: toolResultContent(result),
           is_error: result.isError === true,
         });
       }

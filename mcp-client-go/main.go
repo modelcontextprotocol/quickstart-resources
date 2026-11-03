@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -23,6 +24,80 @@ var model = anthropic.ModelClaudeSonnet5
 // plus the reply, so leave room for both.
 const maxTokens = 10000
 const maxToolTurns = 10
+
+// Image types the Messages API accepts.
+var supportedImageTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+// toolResultContent translates an MCP tool result into content for an
+// Anthropic tool_result.
+//
+// MCP and Anthropic content blocks differ, so each kind is converted. A kind
+// the model cannot take becomes a placeholder rather than vanishing, so the
+// model knows something was there.
+func toolResultContent(result *mcp.CallToolResult) []anthropic.ToolResultBlockParamContentUnion {
+	var content []anthropic.ToolResultBlockParamContentUnion
+	text := func(s string) {
+		if s == "" {
+			return
+		}
+		content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{Text: s}})
+	}
+
+	hasText := false
+	for _, block := range result.Content {
+		switch b := block.(type) {
+		case *mcp.TextContent:
+			hasText = hasText || b.Text != ""
+			text(b.Text)
+		case *mcp.ImageContent:
+			if !supportedImageTypes[b.MIMEType] {
+				text("[unsupported result type: image]")
+				continue
+			}
+			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfImage: &anthropic.ImageBlockParam{
+				Source: anthropic.ImageBlockParamSourceUnion{OfBase64: &anthropic.Base64ImageSourceParam{
+					// The SDK holds the decoded bytes; the API wants base64.
+					Data:      base64.StdEncoding.EncodeToString(b.Data),
+					MediaType: anthropic.Base64ImageSourceMediaType(b.MIMEType),
+				}},
+			}})
+		case *mcp.EmbeddedResource:
+			if b.Resource == nil || b.Resource.Blob != nil {
+				text("[unsupported result type: resource]")
+				continue
+			}
+			text(b.Resource.Text)
+		default:
+			text(fmt.Sprintf("[unsupported result type: %s]", contentType(block)))
+		}
+	}
+
+	// A structured result SHOULD also carry serialized JSON in a text block, but
+	// only SHOULD, so serialize it when no text came with it.
+	if !hasText && result.StructuredContent != nil {
+		if data, err := json.Marshal(result.StructuredContent); err == nil {
+			text(string(data))
+		}
+	}
+
+	return content
+}
+
+// contentType returns an MCP content block's wire type, such as "audio".
+func contentType(block mcp.Content) string {
+	var wire struct {
+		Type string `json:"type"`
+	}
+	if data, err := block.MarshalJSON(); err == nil && json.Unmarshal(data, &wire) == nil && wire.Type != "" {
+		return wire.Type
+	}
+	return "unknown"
+}
 
 type MCPClient struct {
 	anthropic *anthropic.Client
@@ -205,7 +280,16 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 				Arguments: toolUseBlock.Input,
 			})
 			if err != nil {
-				return "", fmt.Errorf("tool call %s failed: %w", toolUseBlock.Name, err)
+				// A rejected call is the model's mistake to correct, so it goes
+				// back as a failed tool_result rather than ending the query.
+				// Every tool_use still needs a matching result.
+				finalText = append(finalText, fmt.Sprintf("[%s failed: %v]", toolUseBlock.Name, err))
+				anthropicToolResults = append(anthropicToolResults, anthropic.NewToolResultBlock(
+					toolUseBlock.ID,
+					fmt.Sprintf("Tool call %s failed: %v", toolUseBlock.Name, err),
+					true,
+				))
+				continue
 			}
 
 			if err := c.validateToolOutput(toolUseBlock.Name, mcpToolResult); err != nil {
@@ -217,19 +301,13 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 				finalText = append(finalText, fmt.Sprintf("[%s returned %d items]", toolUseBlock.Name, len(items)))
 			}
 
-			// Content is a list of block types; forward only the text ones.
-			var texts []string
-			for _, block := range mcpToolResult.Content {
-				if text, ok := block.(*mcp.TextContent); ok {
-					texts = append(texts, text.Text)
-				}
-			}
-
-			anthropicToolResults = append(anthropicToolResults, anthropic.NewToolResultBlock(
-				toolUseBlock.ID,
-				strings.Join(texts, "\n"),
-				mcpToolResult.IsError,
-			))
+			anthropicToolResults = append(anthropicToolResults, anthropic.ContentBlockParamUnion{
+				OfToolResult: &anthropic.ToolResultBlockParam{
+					ToolUseID: toolUseBlock.ID,
+					Content:   toolResultContent(mcpToolResult),
+					IsError:   anthropic.Bool(mcpToolResult.IsError),
+				},
+			})
 		}
 
 		// Append the assistant's response and all tool results, in one user
