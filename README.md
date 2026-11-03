@@ -40,8 +40,10 @@ Each example only needs its own language toolchain. To work across the whole rep
 ## Running the tests
 
 ```bash
-./tests/smoke-test.sh
+make check
 ```
+
+`make check` lints every example, rebuilds the compiled ones and runs `./tests/smoke-test.sh`. Run `make help` for the per-language targets.
 
 The smoke tests verify that every server starts and answers MCP requests (including validating structured tool results against the schemas each tool advertises), and that every client can connect to a mock server and list tools. They run automatically on every pull request via GitHub Actions.
 
@@ -52,7 +54,7 @@ Contributions are welcome. To submit a change:
 1. Fork the repository and create a branch from `main`.
 2. Make your change. Keep the examples minimal - they exist to teach the protocol, not to be production services.
 3. If you change an example's behavior, setup, or dependencies, update that example's README to match.
-4. Run `./tests/smoke-test.sh` and make sure it passes.
+4. Run `make check` and make sure it passes. See [`AGENTS.md`](./AGENTS.md) for how to keep the examples minimal and in sync.
 5. Open a pull request against `main` describing what changed and why.
 
 A few conventions to follow, in line with the broader [Model Context Protocol contributing guidelines](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/CONTRIBUTING.md):
