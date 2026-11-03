@@ -33,7 +33,8 @@
  *    query from its history.
  *  - "cut off reply": a reply stopped by max_tokens. The client must print the
  *    partial text and a notice.
- *  - "after clear", typed after `clear`: the history must be empty again.
+ *  - "after clear", typed after a blank line and `clear`: the history must be
+ *    empty again, and the blank line must not have been sent.
  *
  * Every request must carry the same system prompt, every query after the first
  * must carry the earlier conversation, and the history must be one the API
@@ -82,7 +83,10 @@ const FINAL_ANSWER: Record<Scenario, string> = {
   afterClear: "Fresh start.",
 };
 
-/** What the test types, in order: every query, with `clear` before the last. */
+/**
+ * What the test types, in order: every query, with a blank line (which must not
+ * reach the API) and `clear` before the last.
+ */
 const INPUT = [
   QUERIES.parallel,
   QUERIES.atLimit,
@@ -90,6 +94,7 @@ const INPUT = [
   QUERIES.contents,
   QUERIES.refused,
   QUERIES.cutOff,
+  "",
   "clear",
   QUERIES.afterClear,
   "quit",
@@ -162,6 +167,16 @@ function historyHas(messages: Message[], role: string, value: string): boolean {
   return messages.some(
     (message) => message.role === role && textOf(message.content).includes(value),
   );
+}
+
+/** Whether a tool_use with this id, and a non-empty result for it, are in the history. */
+function toolPairKept(messages: Message[], id: string): boolean {
+  const blocks = messages.flatMap((message) =>
+    Array.isArray(message.content) ? message.content : [],
+  );
+  const used = blocks.some((block) => block.type === "tool_use" && block.id === id);
+  const result = blocks.find((block) => block.type === "tool_result" && block.tool_use_id === id);
+  return used && textOf(result?.content).length > 0;
 }
 
 /**
@@ -294,6 +309,12 @@ function respondContents(n: number, request: Request): Block[] {
         historyHas(request.messages, "assistant", FINAL_ANSWER.parallel),
       `${label}: earlier queries and answers are kept in history`,
     );
+    for (const id of ["tu_1", "tu_2", "tu_3"]) {
+      check(
+        toolPairKept(request.messages, id),
+        `${label}: earlier tool call ${id} and its result are kept in history`,
+      );
+    }
     return [
       toolUse("tc_1", "rejected_call", {}),
       toolUse("tc_2", "structured_only", {}),

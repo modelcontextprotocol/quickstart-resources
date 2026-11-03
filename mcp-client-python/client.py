@@ -190,6 +190,8 @@ class MCPClient:
 
             if query.lower() == "quit":
                 break
+            if not query:
+                continue
             if query.lower() == "clear":
                 self.messages.clear()
                 print("\nConversation cleared.")

@@ -257,6 +257,7 @@ class MCPClient {
         }
 
         if (message.toLowerCase() === "quit") break;
+        if (!message.trim()) continue;
         if (message.toLowerCase() === "clear") {
           this.messages = [];
           console.log("\nConversation cleared.");
