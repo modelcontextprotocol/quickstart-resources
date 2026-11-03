@@ -8,6 +8,17 @@ require "uri"
 NWS_API_BASE = "https://api.weather.gov"
 USER_AGENT = "weather-app/1.0"
 
+# Hints for hosts: both tools only read data, and they read it from an outside
+# service (the NWS API). Hints are not guarantees; a host decides how far to
+# trust them. The gem sends all four hints, so set each one explicitly: its
+# defaults (destructive, not idempotent) suit a tool that writes.
+WEATHER_TOOL_ANNOTATIONS = {
+  read_only_hint: true,
+  destructive_hint: false,
+  idempotent_hint: true,
+  open_world_hint: true
+}.freeze
+
 module HelperMethods
   def make_nws_request(url)
     uri = URI(url)
@@ -47,6 +58,7 @@ class GetAlerts < MCP::Tool
 
   tool_name "get_alerts"
   description "Get weather alerts for a US state"
+  annotations(**WEATHER_TOOL_ANNOTATIONS)
   input_schema(
     properties: {
       state: {
@@ -116,6 +128,7 @@ class GetForecast < MCP::Tool
 
   tool_name "get_forecast"
   description "Get weather forecast for a location"
+  annotations(**WEATHER_TOOL_ANNOTATIONS)
   input_schema(
     properties: {
       latitude: {

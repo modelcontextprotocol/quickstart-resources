@@ -169,6 +169,9 @@ pub struct Weather {
     tool_router: ToolRouter<Weather>,
 }
 
+// Both tools carry the same annotations, hints for hosts: they only read data,
+// and they read it from an outside service (the NWS API). Hints are not
+// guarantees; a host decides how far to trust them.
 #[tool_router(router = tool_router)]
 impl Weather {
     fn new() -> Self {
@@ -179,6 +182,12 @@ impl Weather {
 
     #[tool(
         description = "Get weather alerts for a US state.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        ),
         output_schema = schema_for_output::<Vec<Alert>>()
     )]
     async fn get_alerts(
@@ -229,6 +238,12 @@ impl Weather {
 
     #[tool(
         description = "Get weather forecast for a location.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        ),
         output_schema = schema_for_output::<Forecast>()
     )]
     async fn get_forecast(

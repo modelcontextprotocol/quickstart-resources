@@ -5,6 +5,7 @@
  * Connects to a server, initializes, lists tools, and then checks the tools
  * actually honour what they advertise:
  *
+ *  - every tool declares the same annotations (read-only, open-world);
  *  - every tool that declares an `outputSchema` is called, and the result must
  *    carry `structuredContent` (the SDK validates it against the schema for us
  *    and throws on a mismatch);
@@ -24,6 +25,18 @@ const TOOL_ARGUMENTS: { match: RegExp; args: Record<string, unknown> }[] = [
   { match: /alert/i, args: { state: "CA" } },
   { match: /forecast/i, args: { latitude: 38.5816, longitude: -121.4944 } },
 ];
+
+/**
+ * The annotations every weather tool must declare, identical across the five
+ * servers. All four are set explicitly because the Go and Ruby SDKs always send
+ * some hints, so leaving them to defaults would make the servers disagree.
+ */
+const EXPECTED_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
 
 function argumentsFor(name: string): Record<string, unknown> | undefined {
   return TOOL_ARGUMENTS.find(({ match }) => match.test(name))?.args;
@@ -54,6 +67,18 @@ async function testServer(command: string, args: string[]) {
 
     const { tools } = await client.listTools();
     console.error(`✓ Listed ${tools.length} tools`);
+
+    for (const tool of tools) {
+      for (const [hint, value] of Object.entries(EXPECTED_ANNOTATIONS)) {
+        const actual = tool.annotations?.[hint as keyof typeof EXPECTED_ANNOTATIONS];
+        if (actual !== value) {
+          throw new Error(
+            `${tool.name} should set annotations.${hint} to ${value}, got ${actual}`,
+          );
+        }
+      }
+    }
+    console.error(`✓ All ${tools.length} tools carry the expected annotations`);
 
     let checked = 0;
     for (const tool of tools) {
