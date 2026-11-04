@@ -284,7 +284,10 @@ impl MCPClient {
                 break;
             }
             if stop_reason != "tool_use" {
-                self.messages.push(Message::assistant(response.content));
+                // The API rejects an empty assistant message, so an empty reply isn't kept.
+                if !response.content.is_empty() {
+                    self.messages.push(Message::assistant(response.content));
+                }
                 break;
             }
             if turn == MAX_TOOL_TURNS {
@@ -427,9 +430,14 @@ impl MCPClient {
                 continue;
             }
 
+            let history_length = self.messages.len();
             match self.process_query(query).await {
                 Ok(response) => println!("\n{}", response),
-                Err(err) => println!("\nError: {:#}", err),
+                Err(err) => {
+                    // Drop the failed query so a follow-up doesn't send it again.
+                    self.messages.truncate(history_length);
+                    println!("\nError: {:#}", err);
+                }
             }
         }
 

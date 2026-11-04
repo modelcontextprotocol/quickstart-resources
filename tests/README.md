@@ -23,19 +23,21 @@ Tool calls reach the live NWS API. When it is unreachable the tools return an er
 
 ## Tool loop
 
-Connecting and listing tools does not exercise the chat loop, so each client is also driven through seven scripted queries with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test. The helper types each query only after the client shows its `Query:` prompt, as a person would.
+Connecting and listing tools does not exercise the chat loop, so each client is also driven through nine scripted queries with `tool-loop-test.ts`. No real API is involved: the helper starts a fake Anthropic Messages API on a loopback port and hands it to the client through `ANTHROPIC_BASE_URL`, which every quickstart SDK reads. The client talks to the mock MCP server as in the no-key test. The helper types each query only after the client shows its `Query:` prompt, as a person would.
 
-The fake API picks a script from the query text and checks every request the client sends. Every request must carry the same system prompt, and its history must be one the real API accepts: every `tool_use` answered by a `tool_result` in the next message.
+The fake API picks a script from the query text and checks every request the client sends. Every request must carry the same system prompt, and its history must be one the real API accepts: no message empty, and every `tool_use` answered by a `tool_result` in the next message.
 
 - **parallel tools** — a response with two `tool_use` blocks, then one for a tool the mock server lacks, then an answer. `tools` must be passed on every call, `max_tokens` must be 10000 (room for the model's adaptive thinking), every `tool_use` must get a `tool_result` in a single following user message with matching `tool_use_id`s, and the MCP `isError` result must be forwarded as `is_error`.
 - **ten tool turns** — exactly `MAX_TOOL_TURNS` tool calls, then an answer. The client must print the answer and no stop notice: nothing was cut short.
 - **endless tool turns** — a tool call on every response. The client must stop after `MAX_TOOL_TURNS` rounds, print `[Stopped after 10 tool-use turns]` once, and make no further call.
 - **tool result contents** — one call to each of three tools whose results need translating before they reach the model. A call the server rejects with a JSON-RPC error must come back as a `tool_result` with `is_error` set, and the query must go on. A result with `structuredContent` and only an empty text block must arrive as its JSON. A result with an image, a text resource and an audio block must arrive as an Anthropic base64 image block, the resource's text, and the placeholder `[unsupported result type: audio]`. Empty text from a text block or a resource must be dropped: like the real API, the fake one fails any request that carries an empty text block. The history must also still hold the first query, its tool calls and results, and its answer: the client keeps the conversation.
 - **refused query** — a response with `stop_reason: "refusal"` and no content. The client must print `[The model declined to answer; the query is not kept in history]`, and the next request must not carry the refused query.
-- **cut off reply** — partial text with `stop_reason: "max_tokens"`. The client must print the text and `[Reply cut off at the max_tokens limit]`.
+- **failed query** — a tool call, then an HTTP 400 error from the API. The client must print the error, and the next request must carry neither the query nor its tool call.
+- **empty reply** — `stop_reason: "end_turn"` with no content. The API rejects an empty assistant message, so the client must not keep the reply.
+- **cut off reply** — partial text with `stop_reason: "max_tokens"`. The client must print the text and `[Reply cut off at the max_tokens limit]`. Its request is where the refused and failed queries are checked.
 - **after clear** — typed after a blank line and `clear`. The blank line must not reach the API, and the request must carry this query alone.
 
-Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, drops what a tool returned, forgets the conversation, or ignores `stop_reason` passes the no-key test and fails this one.
+Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, drops what a tool returned, forgets the conversation, keeps a failed query or an empty reply, or ignores `stop_reason` passes the no-key test and fails this one.
 
 All five clients are covered, including Rust: it calls the Messages API directly, so it honours `ANTHROPIC_BASE_URL` like the official SDKs do.
 

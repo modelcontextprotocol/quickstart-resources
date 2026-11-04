@@ -10,7 +10,7 @@
  *  - a fake Anthropic Messages API, started here on a loopback port and handed
  *    to the client through ANTHROPIC_BASE_URL, which every quickstart SDK reads.
  *
- * Seven queries are piped into one client process, and the fake API picks the
+ * Nine queries are piped into one client process, and the fake API picks the
  * script from the query text:
  *
  *  - "parallel tools": text plus two tool_use blocks in one response, then one
@@ -31,6 +31,10 @@
  *    the real API, this one rejects an empty text block in any request.
  *  - "refused query": a refusal. The client must print a notice and drop the
  *    query from its history.
+ *  - "failed query": a tool call, then an API error. The client must print the
+ *    error and drop the query, tool call included, from its history.
+ *  - "empty reply": an end_turn reply with no content. The API rejects an
+ *    empty assistant message, so the client must not keep it.
  *  - "cut off reply": a reply stopped by max_tokens. The client must print the
  *    partial text and a notice.
  *  - "after clear", typed after a blank line and `clear`: the history must be
@@ -38,7 +42,8 @@
  *
  * Every request must carry the same system prompt, every query after the first
  * must carry the earlier conversation, and the history must be one the API
- * accepts: every tool_use answered by a tool_result in the next message.
+ * accepts: no message empty, and every tool_use answered by a tool_result in
+ * the next message.
  *
  * A client that does one tool round and stops, drops `tools` on the second
  * call, sends one tool_result per message, or gets the turn cap wrong fails
@@ -68,6 +73,8 @@ const QUERIES = {
   overrun: "endless tool turns",
   contents: "tool result contents",
   refused: "refused query",
+  failed: "failed query",
+  empty: "empty reply",
   cutOff: "cut off reply",
   afterClear: "after clear",
 } as const;
@@ -79,6 +86,8 @@ const FINAL_ANSWER: Record<Scenario, string> = {
   overrun: "never sent",
   contents: "Contents handled.",
   refused: "never sent",
+  failed: "never sent",
+  empty: "never sent",
   cutOff: "Partial reply",
   afterClear: "Fresh start.",
 };
@@ -93,6 +102,8 @@ const INPUT = [
   QUERIES.overrun,
   QUERIES.contents,
   QUERIES.refused,
+  QUERIES.failed,
+  QUERIES.empty,
   QUERIES.cutOff,
   "",
   "clear",
@@ -105,6 +116,8 @@ const SYSTEM_PROMPT =
   "You are a helpful assistant. Use the available tools when they help answer the question.";
 const REFUSAL_NOTICE = "[The model declined to answer; the query is not kept in history]";
 const MAX_TOKENS_NOTICE = "[Reply cut off at the max_tokens limit]";
+/** What the fake API says when it fails the failed query. */
+const API_ERROR = "prompt is too long";
 
 type Block = Record<string, unknown> & { type: string };
 type Message = { role: string; content: string | Block[] };
@@ -124,6 +137,8 @@ const calls: Record<Scenario, number> = {
   overrun: 0,
   contents: 0,
   refused: 0,
+  failed: 0,
+  empty: 0,
   cutOff: 0,
   afterClear: 0,
 };
@@ -190,6 +205,7 @@ function historyProblem(messages: Message[]): string | undefined {
   }
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
+    if (message.content.length === 0) return `message ${i} is empty`;
     if (message.role !== "assistant") continue;
     if (messages[i - 1]?.role === "assistant") return `two assistant messages in a row at ${i}`;
     const blocks = Array.isArray(message.content) ? message.content : [];
@@ -402,7 +418,8 @@ function respondTurnLimit(scenario: "atLimit" | "overrun", n: number, request: R
     : [toolUse(`${prefix}_${n}`, "get_alerts", { state: "NY" })];
 }
 
-type Reply = { content: Block[]; stopReason?: string };
+/** A scripted reply, or an error for the fake API to fail the request with. */
+type Reply = { content: Block[]; stopReason?: string; error?: string };
 
 function respond(request: Request): Reply {
   const scenario = scenarioOf(request.messages);
@@ -437,10 +454,23 @@ function respond(request: Request): Reply {
     // A refusal before any output comes back with no content.
     return { content: [], stopReason: "refusal" };
   }
+  if (scenario === "failed") {
+    // A tool round first, so rolling back must drop more than the query.
+    if (n === 1) return { content: [toolUse("rj_1", "get_alerts", { state: "TX" })] };
+    return { content: [], error: API_ERROR };
+  }
+  if (scenario === "empty") {
+    return { content: [], stopReason: "end_turn" };
+  }
   if (scenario === "cutOff") {
     check(
       !historyHas(request.messages, "user", QUERIES.refused),
       `${label}: the refused query is not kept in history`,
+    );
+    check(
+      !historyHas(request.messages, "user", QUERIES.failed) &&
+        !toolPairKept(request.messages, "rj_1"),
+      `${label}: the failed query and its tool call are not kept in history`,
     );
     check(
       historyHas(request.messages, "assistant", FINAL_ANSWER.contents),
@@ -474,10 +504,17 @@ function startFakeApi(): Promise<http.Server> {
         res.writeHead(400).end();
         return;
       }
-      const { content, stopReason: scripted } = respond(request);
+      const { content, stopReason: scripted, error } = respond(request);
+      res.setHeader("content-type", "application/json");
+      if (error) {
+        // 400 rather than 500: the SDKs retry a 500, not a 400.
+        res.writeHead(400).end(
+          JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: error } }),
+        );
+        return;
+      }
       const stopReason =
         scripted ?? (content.some((block) => block.type === "tool_use") ? "tool_use" : "end_turn");
-      res.setHeader("content-type", "application/json");
       res.end(
         JSON.stringify({
           id: `msg_${Object.values(calls).reduce((a, b) => a + b, 0)}`,
@@ -568,6 +605,9 @@ function checkOutput(code: number | null, stdout: string) {
 
   check(calls.refused === 1, `refused: API was called once (got ${calls.refused})`);
   check(stdout.includes(REFUSAL_NOTICE), "refused: client printed the refusal notice");
+  check(calls.failed === 2, `failed: API was called 2 times (got ${calls.failed})`);
+  check(stdout.includes(API_ERROR), "failed: client printed the API error");
+  check(calls.empty === 1, `empty: API was called once (got ${calls.empty})`);
   check(calls.cutOff === 1, `cut off: API was called once (got ${calls.cutOff})`);
   check(stdout.includes(FINAL_ANSWER.cutOff), "cut off: client printed the partial reply");
   check(stdout.includes(MAX_TOKENS_NOTICE), "cut off: client printed the max_tokens notice");

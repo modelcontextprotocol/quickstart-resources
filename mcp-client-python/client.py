@@ -131,7 +131,9 @@ class MCPClient:
                 final_text.append("[Reply cut off at the max_tokens limit]")
                 break
             if response.stop_reason != "tool_use":
-                self.messages.append({"role": "assistant", "content": response.content})
+                # The API rejects an empty assistant message, so an empty reply isn't kept.
+                if response.content:
+                    self.messages.append({"role": "assistant", "content": response.content})
                 break
             if turn == MAX_TOOL_TURNS:
                 final_text.append(f"[Stopped after {MAX_TOOL_TURNS} tool-use turns]")
@@ -197,10 +199,13 @@ class MCPClient:
                 print("\nConversation cleared.")
                 continue
 
+            history_length = len(self.messages)
             try:
                 response = await self.process_query(query)
                 print("\n" + response)
             except Exception as e:
+                # Drop the failed query so a follow-up doesn't send it again.
+                del self.messages[history_length:]
                 print(f"\nError: {str(e)}")
 
     async def cleanup(self):

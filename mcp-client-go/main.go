@@ -277,7 +277,10 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 			break
 		}
 		if response.StopReason != anthropic.StopReasonToolUse {
-			c.messages = append(c.messages, response.ToParam())
+			// The API rejects an empty assistant message, so an empty reply isn't kept.
+			if len(response.Content) > 0 {
+				c.messages = append(c.messages, response.ToParam())
+			}
 			break
 		}
 		if turn == maxToolTurns {
@@ -364,8 +367,11 @@ func (c *MCPClient) ChatLoop(ctx context.Context) error {
 			continue
 		}
 
+		historyLength := len(c.messages)
 		response, err := c.ProcessQuery(ctx, query)
 		if err != nil {
+			// Drop the failed query so a follow-up doesn't send it again.
+			c.messages = c.messages[:historyLength]
 			fmt.Printf("\nError: %v\n", err)
 			continue
 		}

@@ -169,7 +169,10 @@ class MCPClient {
         break;
       }
       if (response.stop_reason !== "tool_use") {
-        this.messages.push({ role: "assistant", content: response.content });
+        // The API rejects an empty assistant message, so an empty reply isn't kept.
+        if (response.content.length > 0) {
+          this.messages.push({ role: "assistant", content: response.content });
+        }
         break;
       }
       if (turn === MAX_TOOL_TURNS) {
@@ -264,10 +267,13 @@ class MCPClient {
           continue;
         }
 
+        const historyLength = this.messages.length;
         try {
           const response = await this.processQuery(message);
           console.log("\n" + response);
         } catch (e) {
+          // Drop the failed query so a follow-up doesn't send it again.
+          this.messages.length = historyLength;
           console.log(`\nError: ${e instanceof Error ? e.message : String(e)}`);
         }
       }

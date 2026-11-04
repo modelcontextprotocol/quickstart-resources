@@ -71,10 +71,13 @@ class MCPClient
         next
       end
 
+      history_length = @messages.length
       begin
         response = process_query(query)
         puts "\n#{response}"
       rescue => e
+        # Drop the failed query so a follow-up doesn't send it again.
+        @messages.slice!(history_length..)
         puts "\nError: #{e.message}"
       end
     end
@@ -149,7 +152,8 @@ class MCPClient
         break
       end
       if response.stop_reason != :tool_use
-        @messages << { role: "assistant", content: assistant_content(response) }
+        # The API rejects an empty assistant message, so an empty reply isn't kept.
+        @messages << { role: "assistant", content: assistant_content(response) } unless response.content.empty?
         break
       end
       if turn == MAX_TOOL_TURNS
