@@ -37,7 +37,7 @@
  *    empty assistant message, so the client must not keep it.
  *  - "cut off reply": a reply stopped by max_tokens. The client must print the
  *    partial text and a notice.
- *  - "after clear", typed after a blank line and `clear`: the history must be
+ *  - "after clear", typed after a blank line and ` clear `: the history must be
  *    empty again, and the blank line must not have been sent.
  *
  * Every request must carry the same system prompt, every query after the first
@@ -94,7 +94,8 @@ const FINAL_ANSWER: Record<Scenario, string> = {
 
 /**
  * What the test types, in order: every query, with a blank line (which must not
- * reach the API) and `clear` before the last.
+ * reach the API) and `clear` before the last. `clear` has spaces around it, as
+ * a command typed carelessly still counts.
  */
 const INPUT = [
   QUERIES.parallel,
@@ -106,7 +107,7 @@ const INPUT = [
   QUERIES.empty,
   QUERIES.cutOff,
   "",
-  "clear",
+  " clear ",
   QUERIES.afterClear,
   "quit",
 ];

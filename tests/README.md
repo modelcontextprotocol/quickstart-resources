@@ -35,7 +35,7 @@ The fake API picks a script from the query text and checks every request the cli
 - **failed query** — a tool call, then an HTTP 400 error from the API. The client must print the error, and the next request must carry neither the query nor its tool call.
 - **empty reply** — `stop_reason: "end_turn"` with no content. The API rejects an empty assistant message, so the client must not keep the reply.
 - **cut off reply** — partial text with `stop_reason: "max_tokens"`. The client must print the text and `[Reply cut off at the max_tokens limit]`. Its request is where the refused and failed queries are checked.
-- **after clear** — typed after a blank line and `clear`. The blank line must not reach the API, and the request must carry this query alone.
+- **after clear** — typed after a blank line and ` clear ` (spaces around it, which every client must trim). The blank line must not reach the API, and the request must carry this query alone.
 
 Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, drops what a tool returned, forgets the conversation, keeps a failed query or an empty reply, or ignores `stop_reason` passes the no-key test and fails this one.
 
@@ -119,7 +119,7 @@ node tests/helpers/build/mock-mcp-server.js
 
 ### tool-loop-test.ts
 
-Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the queries, a blank line and `clear` before the last one, and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
+Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the queries, a blank line and ` clear ` before the last one, and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
 
 **Usage**:
 

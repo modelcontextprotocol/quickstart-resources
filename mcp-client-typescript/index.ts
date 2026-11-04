@@ -254,13 +254,13 @@ class MCPClient {
       while (true) {
         let message: string;
         try {
-          message = await rl.question("\nQuery: ", { signal: ac.signal });
+          message = (await rl.question("\nQuery: ", { signal: ac.signal })).trim();
         } catch {
           break;
         }
 
         if (message.toLowerCase() === "quit") break;
-        if (!message.trim()) continue;
+        if (!message) continue;
         if (message.toLowerCase() === "clear") {
           this.messages = [];
           console.log("\nConversation cleared.");
