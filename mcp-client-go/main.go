@@ -24,6 +24,7 @@ var model = anthropic.ModelClaudeSonnet5
 // plus the reply, so leave room for both.
 const maxTokens = 10000
 const maxToolTurns = 10
+const systemPrompt = "You are a helpful assistant. Use the available tools when they help answer the question."
 
 // Image types the Messages API accepts.
 var supportedImageTypes = map[string]bool{
@@ -103,6 +104,7 @@ type MCPClient struct {
 	anthropic *anthropic.Client
 	session   *mcp.ClientSession
 	tools     []anthropic.ToolUnionParam
+	messages  []anthropic.MessageParam
 	// Compiled outputSchema per tool name, for validating results.
 	outputSchemas map[string]*jsonschema.Resolved
 }
@@ -240,37 +242,59 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 		return "", fmt.Errorf("client is not connected to any server")
 	}
 
-	messages := []anthropic.MessageParam{
-		anthropic.NewUserMessage(anthropic.NewTextBlock(query)),
-	}
-
+	historyLength := len(c.messages)
+	c.messages = append(c.messages, anthropic.NewUserMessage(anthropic.NewTextBlock(query)))
 	var finalText []string
 
-	// Initial Claude API call with tools
-	response, err := c.createMessage(ctx, messages)
-	if err != nil {
-		return "", err
-	}
+	for turn := 0; turn <= maxToolTurns; turn++ {
+		// Tools are passed on every call so Claude can keep calling them.
+		response, err := c.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
+			Model:     model,
+			MaxTokens: maxTokens,
+			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
+			Messages:  c.messages,
+			Tools:     c.tools,
+		})
+		if err != nil {
+			return "", fmt.Errorf("anthropic API request failed: %w", err)
+		}
 
-	// Keep calling tools until Claude answers without one, up to a cap.
-	for turn := 0; turn < maxToolTurns; turn++ {
-		var toolUseBlocks []anthropic.ToolUseBlock
+		if response.StopReason == anthropic.StopReasonRefusal {
+			// Drop the refused query so a follow-up doesn't send it again.
+			c.messages = c.messages[:historyLength]
+			finalText = append(finalText, "[The model declined to answer; the query is not kept in history]")
+			break
+		}
+
 		for _, block := range response.Content {
-			switch b := block.AsAny().(type) {
-			case anthropic.TextBlock:
+			if b, ok := block.AsAny().(anthropic.TextBlock); ok {
 				finalText = append(finalText, b.Text)
-			case anthropic.ToolUseBlock:
-				toolUseBlocks = append(toolUseBlocks, b)
 			}
 		}
 
-		if len(toolUseBlocks) == 0 {
-			return strings.Join(finalText, "\n"), nil
+		if response.StopReason == anthropic.StopReasonMaxTokens {
+			finalText = append(finalText, "[Reply cut off at the max_tokens limit]")
+			break
+		}
+		if response.StopReason != anthropic.StopReasonToolUse {
+			// The API rejects an empty assistant message, so an empty reply isn't kept.
+			if len(response.Content) > 0 {
+				c.messages = append(c.messages, response.ToParam())
+			}
+			break
+		}
+		if turn == maxToolTurns {
+			finalText = append(finalText, fmt.Sprintf("[Stopped after %d tool-use turns]", maxToolTurns))
+			break
 		}
 
 		// Execute every tool call in this response and collect the results
 		var anthropicToolResults []anthropic.ContentBlockParamUnion
-		for _, toolUseBlock := range toolUseBlocks {
+		for _, block := range response.Content {
+			toolUseBlock, ok := block.AsAny().(anthropic.ToolUseBlock)
+			if !ok {
+				continue
+			}
 			// Add information about the tool call to final text
 			finalText = append(finalText, fmt.Sprintf("[Calling tool %s with args %s]", toolUseBlock.Name, string(toolUseBlock.Input)))
 
@@ -310,53 +334,17 @@ func (c *MCPClient) ProcessQuery(ctx context.Context, query string) (string, err
 			})
 		}
 
-		// Append the assistant's response and all tool results, in one user
-		// message, to the history. Every tool_use needs a matching tool_result.
-		messages = append(messages, response.ToParam())
-		messages = append(messages, anthropic.NewUserMessage(anthropicToolResults...))
-
-		response, err = c.createMessage(ctx, messages)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	// The turn cap was hit. Keep the last response's text. If it asked for
-	// more tools, say they were not run.
-	wantsTools := false
-	for _, block := range response.Content {
-		switch b := block.AsAny().(type) {
-		case anthropic.TextBlock:
-			finalText = append(finalText, b.Text)
-		case anthropic.ToolUseBlock:
-			wantsTools = true
-		}
-	}
-	if wantsTools {
-		finalText = append(finalText, fmt.Sprintf("[Stopped after %d tool-use turns]", maxToolTurns))
+		// Every tool_use needs a matching tool_result, all in one user message.
+		c.messages = append(c.messages, response.ToParam())
+		c.messages = append(c.messages, anthropic.NewUserMessage(anthropicToolResults...))
 	}
 
 	return strings.Join(finalText, "\n"), nil
 }
 
-// createMessage calls Claude with the current history. Tools are passed on
-// every call so Claude can keep calling them across turns.
-func (c *MCPClient) createMessage(ctx context.Context, messages []anthropic.MessageParam) (*anthropic.Message, error) {
-	response, err := c.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     model,
-		MaxTokens: maxTokens,
-		Messages:  messages,
-		Tools:     c.tools,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("anthropic API request failed: %w", err)
-	}
-	return response, nil
-}
-
 func (c *MCPClient) ChatLoop(ctx context.Context) error {
 	fmt.Println("\nMCP Client Started!")
-	fmt.Println("Type your queries or 'quit' to exit.")
+	fmt.Println("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.")
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -370,12 +358,20 @@ func (c *MCPClient) ChatLoop(ctx context.Context) error {
 		if strings.EqualFold(query, "quit") {
 			break
 		}
+		if strings.EqualFold(query, "clear") {
+			c.messages = nil
+			fmt.Println("\nConversation cleared.")
+			continue
+		}
 		if query == "" {
 			continue
 		}
 
+		historyLength := len(c.messages)
 		response, err := c.ProcessQuery(ctx, query)
 		if err != nil {
+			// Drop the failed query so a follow-up doesn't send it again.
+			c.messages = c.messages[:historyLength]
 			fmt.Printf("\nError: %v\n", err)
 			continue
 		}

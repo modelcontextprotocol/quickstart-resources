@@ -14,6 +14,8 @@ const ANTHROPIC_MODEL = "claude-sonnet-5";
 // plus the reply, so leave room for both.
 const MAX_TOKENS = 10000;
 const MAX_TOOL_TURNS = 10;
+const SYSTEM_PROMPT =
+  "You are a helpful assistant. Use the available tools when they help answer the question.";
 
 type ImageMediaType = Anthropic.Base64ImageSource["media_type"];
 // Image types the Messages API accepts.
@@ -70,6 +72,7 @@ class MCPClient {
   private _anthropic: Anthropic | null = null;
   private transport: StdioClientTransport | null = null;
   private tools: Anthropic.Tool[] = [];
+  private messages: Anthropic.MessageParam[] = [];
 
   constructor() {
     // 'auto' probes server/discover, falling back to the 2025-11-25 handshake.
@@ -137,39 +140,49 @@ class MCPClient {
      * @param query - The user's input query
      * @returns Processed response as a string
      */
-    const messages: Anthropic.MessageParam[] = [
-      {
-        role: "user",
-        content: query,
-      },
-    ];
-
-    let response = await this.anthropic.messages.create({
-      model: ANTHROPIC_MODEL,
-      max_tokens: MAX_TOKENS,
-      messages,
-      tools: this.tools,
-    });
-
+    const historyLength = this.messages.length;
+    this.messages.push({ role: "user", content: query });
     const finalText: string[] = [];
 
-    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-      const toolUses: Anthropic.ToolUseBlock[] = [];
+    for (let turn = 0; turn <= MAX_TOOL_TURNS; turn++) {
+      const response = await this.anthropic.messages.create({
+        model: ANTHROPIC_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: SYSTEM_PROMPT,
+        messages: this.messages,
+        tools: this.tools,
+      });
 
-      for (const block of response.content) {
-        if (block.type === "text") {
-          finalText.push(block.text);
-        } else if (block.type === "tool_use") {
-          toolUses.push(block);
-        }
+      if (response.stop_reason === "refusal") {
+        // Drop the refused query so a follow-up doesn't send it again.
+        this.messages.length = historyLength;
+        finalText.push("[The model declined to answer; the query is not kept in history]");
+        break;
       }
 
-      if (toolUses.length === 0) {
-        return finalText.join("\n");
+      for (const block of response.content) {
+        if (block.type === "text") finalText.push(block.text);
+      }
+
+      if (response.stop_reason === "max_tokens") {
+        finalText.push("[Reply cut off at the max_tokens limit]");
+        break;
+      }
+      if (response.stop_reason !== "tool_use") {
+        // The API rejects an empty assistant message, so an empty reply isn't kept.
+        if (response.content.length > 0) {
+          this.messages.push({ role: "assistant", content: response.content });
+        }
+        break;
+      }
+      if (turn === MAX_TOOL_TURNS) {
+        finalText.push(`[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`);
+        break;
       }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const toolUse of toolUses) {
+      for (const toolUse of response.content) {
+        if (toolUse.type !== "tool_use") continue;
         const toolArgs = toolUse.input as { [x: string]: unknown } | undefined;
         finalText.push(
           `[Calling tool ${toolUse.name} with args ${JSON.stringify(toolArgs)}]`,
@@ -211,33 +224,10 @@ class MCPClient {
         });
       }
 
-      messages.push({
-        role: "assistant",
-        content: response.content as unknown as Anthropic.ContentBlockParam[],
-      });
-      messages.push({ role: "user", content: toolResults });
-
-      response = await this.anthropic.messages.create({
-        model: ANTHROPIC_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages,
-        tools: this.tools,
-      });
+      this.messages.push({ role: "assistant", content: response.content });
+      this.messages.push({ role: "user", content: toolResults });
     }
 
-    // The turn cap was hit. Keep the last response's text. If it asked for
-    // more tools, say they were not run.
-    let wantsTools = false;
-    for (const block of response.content) {
-      if (block.type === "text") {
-        finalText.push(block.text);
-      } else if (block.type === "tool_use") {
-        wantsTools = true;
-      }
-    }
-    if (wantsTools) {
-      finalText.push(`[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`);
-    }
     return finalText.join("\n");
   }
 
@@ -259,22 +249,31 @@ class MCPClient {
 
     try {
       console.log("\nMCP Client Started!");
-      console.log("Type your queries or 'quit' to exit.");
+      console.log("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.");
 
       while (true) {
         let message: string;
         try {
-          message = await rl.question("\nQuery: ", { signal: ac.signal });
+          message = (await rl.question("\nQuery: ", { signal: ac.signal })).trim();
         } catch {
           break;
         }
 
         if (message.toLowerCase() === "quit") break;
+        if (!message) continue;
+        if (message.toLowerCase() === "clear") {
+          this.messages = [];
+          console.log("\nConversation cleared.");
+          continue;
+        }
 
+        const historyLength = this.messages.length;
         try {
           const response = await this.processQuery(message);
           console.log("\n" + response);
         } catch (e) {
+          // Drop the failed query so a follow-up doesn't send it again.
+          this.messages.length = historyLength;
           console.log(`\nError: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
