@@ -95,7 +95,17 @@ async function run(scenario: Scenario, command: string, args: string[]) {
       ANTHROPIC_API_KEY: "test-key",
     },
     stdio: ["pipe", "pipe", "pipe"],
+    // Its own process group, so a client that hangs can be killed together
+    // with everything it started. SIGINT still goes to the client alone.
+    detached: true,
   });
+  const killAll = () => {
+    try {
+      process.kill(-child.pid!, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  };
   let stdout = "";
   let stderr = "";
   let sentAt = 0;
@@ -118,9 +128,9 @@ async function run(scenario: Scenario, command: string, args: string[]) {
   });
   child.stderr.on("data", (chunk) => (stderr += chunk));
 
-  const timer = setTimeout(() => child.kill("SIGKILL"), START_TIMEOUT_MS);
+  const timer = setTimeout(killAll, START_TIMEOUT_MS);
   const exitTimer = setInterval(() => {
-    if (sentAt && Date.now() - sentAt > EXIT_TIMEOUT_MS) child.kill("SIGKILL");
+    if (sentAt && Date.now() - sentAt > EXIT_TIMEOUT_MS) killAll();
   }, 200);
 
   const [code, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) => {
@@ -128,7 +138,9 @@ async function run(scenario: Scenario, command: string, args: string[]) {
       failures.push(`${scenario}: could not start client: ${error.message}`);
       resolve([null, null]);
     });
-    child.on("close", (code, signal) => resolve([code, signal]));
+    // "exit", not "close": a server left running can hold the client's pipes
+    // open, and the server check below must still run.
+    child.on("exit", (code, signal) => resolve([code, signal]));
   });
   clearTimeout(timer);
   clearInterval(exitTimer);

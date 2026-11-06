@@ -5,7 +5,7 @@ import sys
 import threading
 from contextlib import AsyncExitStack
 
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from mcp import Client, MCPError, StdioServerParameters
 from mcp_types import CallToolResult, EmbeddedResource, ImageContent, Implementation, TextContent, TextResourceContents
@@ -58,15 +58,15 @@ class MCPClient:
         # Initialize session and client objects
         self.client: Client | None = None
         self.exit_stack = AsyncExitStack()
-        self._anthropic: Anthropic | None = None
+        self._anthropic: AsyncAnthropic | None = None
         self.tools: list[dict] = []
         self.messages: list[dict] = []
 
     @property
-    def anthropic(self) -> Anthropic:
+    def anthropic(self) -> AsyncAnthropic:
         """Lazy-initialize Anthropic client when needed"""
         if self._anthropic is None:
-            self._anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            self._anthropic = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         return self._anthropic
 
     async def connect_to_server(self, server_command: list[str]):
@@ -107,7 +107,7 @@ class MCPClient:
         final_text = []
 
         for turn in range(MAX_TOOL_TURNS + 1):
-            response = self.anthropic.messages.create(
+            response = await self.anthropic.messages.create(
                 model=ANTHROPIC_MODEL,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
