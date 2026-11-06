@@ -218,12 +218,16 @@ async def read_line(prompt: str) -> str:
     line = loop.create_future()
 
     def read():
-        # The raw stream takes no lock, so exiting mid-read is safe.
-        data = sys.stdin.buffer.raw.readline()
-        if data:
-            loop.call_soon_threadsafe(line.set_result, data.decode())
+        try:
+            # The raw stream takes no lock, so exiting mid-read is safe.
+            data = sys.stdin.buffer.raw.readline()
+            if not data:
+                raise EOFError
+            result = data.decode(sys.stdin.encoding, sys.stdin.errors)
+        except Exception as e:
+            loop.call_soon_threadsafe(line.set_exception, e)
         else:
-            loop.call_soon_threadsafe(line.set_exception, EOFError())
+            loop.call_soon_threadsafe(line.set_result, result)
 
     print(prompt, end="", flush=True)
 

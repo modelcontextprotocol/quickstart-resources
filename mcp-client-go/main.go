@@ -432,6 +432,12 @@ func main() {
 	defer stop()
 
 	if err := client.ConnectToServer(ctx, serverArgs); err != nil {
+		// The session may already be open, for example if listing tools failed.
+		_ = client.Cleanup()
+		if ctx.Err() != nil {
+			fmt.Println()
+			return // Ctrl-C while connecting
+		}
 		log.Fatalf("Failed to connect to MCP server: %v", err)
 	}
 
