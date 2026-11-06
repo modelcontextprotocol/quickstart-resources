@@ -229,11 +229,15 @@ class MCPClient {
     });
     // rl.question() doesn't reject on stdin EOF on its own; wire its close
     // event to an AbortSignal so EOF (Ctrl-D) and SIGINT both unblock it.
-    // The signal also aborts a query in progress.
     const ac = new AbortController();
     const onClose = () => ac.abort();
     rl.on("close", onClose);
-    const onSigint = () => rl.close();
+    // Only Ctrl-C aborts a query in progress: on EOF, the query finishes first.
+    const interrupt = new AbortController();
+    const onSigint = () => {
+      interrupt.abort();
+      rl.close();
+    };
     process.once("SIGINT", onSigint);
 
     try {
@@ -258,10 +262,10 @@ class MCPClient {
 
         const historyLength = this.messages.length;
         try {
-          const response = await this.processQuery(message, ac.signal);
+          const response = await this.processQuery(message, interrupt.signal);
           console.log("\n" + response);
         } catch (e) {
-          if (ac.signal.aborted) break; // Ctrl-C during the query
+          if (interrupt.signal.aborted) break; // Ctrl-C during the query
           // Drop the failed query so a follow-up doesn't send it again.
           this.messages.length = historyLength;
           console.log(`\nError: ${e instanceof Error ? e.message : String(e)}`);
