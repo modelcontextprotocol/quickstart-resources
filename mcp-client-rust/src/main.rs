@@ -22,7 +22,7 @@ const SYSTEM_PROMPT: &str =
     "You are a helpful assistant. Use the available tools when they help answer the question.";
 
 const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
+const ANTHROPIC_VERSION: &str = "2026-10-21";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// Image types the Messages API accepts.
 const SUPPORTED_IMAGE_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -382,7 +382,7 @@ impl MCPClient {
         let response = self
             .http
             .post(format!("{}/v1/messages", base_url.trim_end_matches('/')))
-            .header("x-api-key", api_key)
+            .bearer_auth(api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&request)
             .send()

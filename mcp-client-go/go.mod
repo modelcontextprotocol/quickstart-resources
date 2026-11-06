@@ -3,7 +3,7 @@ module github.com/modelcontextprotocol/quickstart-resources/mcp-client-go
 go 1.25.1
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/anthropics/anthropic-sdk-go/v2 v2.7.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/joho/godotenv v1.5.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
