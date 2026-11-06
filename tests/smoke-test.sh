@@ -14,6 +14,7 @@ TESTS_DIR="${PROJECT_ROOT}/tests"
 TEST_CLIENT="${PROJECT_ROOT}/tests/helpers/build/mcp-test-client.js"
 MOCK_SERVER="${PROJECT_ROOT}/tests/helpers/build/mock-mcp-server.js"
 TOOL_LOOP_TEST="${PROJECT_ROOT}/tests/helpers/build/tool-loop-test.js"
+INTERRUPT_TEST="${PROJECT_ROOT}/tests/helpers/build/interrupt-test.js"
 
 # Track test results
 FAILED_TESTS=()
@@ -183,34 +184,42 @@ test_mcp_client_rust() {
 # results need translating, a refusal, a tool call then an API error, an empty
 # reply, a reply cut off by max_tokens, and one after `clear`. It checks every request the client sends, the conversation
 # history included; see tests/README.md for what is checked.
+#
+# The Ctrl-C tests send SIGINT to the client at its prompt and again while a
+# query waits on a fake API that never answers, with stdin kept open both
+# times. The client must exit with status 0 and shut the mock server down.
 
-# Test: Python MCP client tool loop
-test_tool_loop_python() {
+# Run the Python client under a test helper (tool loop or Ctrl-C)
+drive_client_python() {
+    local helper=$1
     check_dependency uv || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-python"
-    node "${TOOL_LOOP_TEST}" uv --directory "${client_dir}" run python "${client_dir}/client.py" node "${MOCK_SERVER}"
+    node "${helper}" uv --directory "${client_dir}" run python "${client_dir}/client.py" node "${MOCK_SERVER}"
 }
 
-# Test: TypeScript MCP client tool loop
-test_tool_loop_typescript() {
+# Run the TypeScript client under a test helper (tool loop or Ctrl-C)
+drive_client_typescript() {
+    local helper=$1
     check_dependency node || return 1
     check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
     ensure_built "${client_dir}" "" || return 1
-    node "${TOOL_LOOP_TEST}" node "${client_dir}/build/index.js" node "${MOCK_SERVER}"
+    node "${helper}" node "${client_dir}/build/index.js" node "${MOCK_SERVER}"
 }
 
-# Test: Ruby MCP client tool loop
-test_tool_loop_ruby() {
+# Run the Ruby client under a test helper (tool loop or Ctrl-C)
+drive_client_ruby() {
+    local helper=$1
     check_dependency ruby || return 1
     check_dependency bundle || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-ruby"
     ensure_bundled "${client_dir}" || return 1
-    (cd "${client_dir}" && node "${TOOL_LOOP_TEST}" bundle exec ruby client.rb node "${MOCK_SERVER}")
+    (cd "${client_dir}" && node "${helper}" bundle exec ruby client.rb node "${MOCK_SERVER}")
 }
 
-# Test: Go MCP client tool loop
-test_tool_loop_go() {
+# Run the Go client under a test helper (tool loop or Ctrl-C)
+drive_client_go() {
+    local helper=$1
     check_dependency go || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-go"
     ensure_built "${client_dir}" mcp-client-go || return 1
@@ -221,11 +230,12 @@ test_tool_loop_go() {
         return 1
     }
 
-    node "${TOOL_LOOP_TEST}" "${client_bin}" node "${MOCK_SERVER}"
+    node "${helper}" "${client_bin}" node "${MOCK_SERVER}"
 }
 
-# Test: Rust MCP client tool loop
-test_tool_loop_rust() {
+# Run the Rust client under a test helper (tool loop or Ctrl-C)
+drive_client_rust() {
+    local helper=$1
     check_dependency cargo || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-rust"
     ensure_built "${client_dir}" mcp-client-rust || return 1
@@ -237,7 +247,7 @@ test_tool_loop_rust() {
         return 1
     }
 
-    node "${TOOL_LOOP_TEST}" "${client_bin}" node "${MOCK_SERVER}"
+    node "${helper}" "${client_bin}" node "${MOCK_SERVER}"
 }
 
 # Run all tests
@@ -253,11 +263,16 @@ run_test "mcp-client-typescript" test_mcp_client_typescript
 run_test "mcp-client-ruby" test_mcp_client_ruby
 run_test "mcp-client-go" test_mcp_client_go
 run_test "mcp-client-rust" test_mcp_client_rust
-run_test "mcp-client-python tool loop" test_tool_loop_python
-run_test "mcp-client-typescript tool loop" test_tool_loop_typescript
-run_test "mcp-client-ruby tool loop" test_tool_loop_ruby
-run_test "mcp-client-go tool loop" test_tool_loop_go
-run_test "mcp-client-rust tool loop" test_tool_loop_rust
+run_test "mcp-client-python tool loop" drive_client_python "${TOOL_LOOP_TEST}"
+run_test "mcp-client-typescript tool loop" drive_client_typescript "${TOOL_LOOP_TEST}"
+run_test "mcp-client-ruby tool loop" drive_client_ruby "${TOOL_LOOP_TEST}"
+run_test "mcp-client-go tool loop" drive_client_go "${TOOL_LOOP_TEST}"
+run_test "mcp-client-rust tool loop" drive_client_rust "${TOOL_LOOP_TEST}"
+run_test "mcp-client-python Ctrl-C" drive_client_python "${INTERRUPT_TEST}"
+run_test "mcp-client-typescript Ctrl-C" drive_client_typescript "${INTERRUPT_TEST}"
+run_test "mcp-client-ruby Ctrl-C" drive_client_ruby "${INTERRUPT_TEST}"
+run_test "mcp-client-go Ctrl-C" drive_client_go "${INTERRUPT_TEST}"
+run_test "mcp-client-rust Ctrl-C" drive_client_rust "${INTERRUPT_TEST}"
 
 # Print summary
 echo ""

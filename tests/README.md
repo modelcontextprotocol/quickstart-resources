@@ -41,6 +41,10 @@ Finally the client must exit 0 on `quit`. A client that does one tool round and 
 
 All five clients are covered, including Rust: it calls the Messages API directly, so it honours `ANTHROPIC_BASE_URL` like the official SDKs do.
 
+## Ctrl-C
+
+Every client must treat Ctrl-C like `quit`. `interrupt-test.ts` sends SIGINT to the client twice, in two separate runs: once at its `Query:` prompt, and once while a query waits on a fake API that never answers. Stdin stays open both times, as in a terminal, so a client stuck on a pending read when it tries to exit fails here. The client must exit with status 0 within 10 seconds, and the mock MCP server must be gone afterwards: only the client gets the signal, so it must shut the server down itself.
+
 ## Running Tests
 
 ```bash
@@ -114,8 +118,10 @@ Three more tools serve the tool-loop test's **tool result contents** query: `rej
 **Usage**:
 
 ```bash
-node tests/helpers/build/mock-mcp-server.js
+node tests/helpers/build/mock-mcp-server.js [pid file]
 ```
+
+Given a path, it writes its PID there, so the Ctrl-C test can check it has exited.
 
 ### tool-loop-test.ts
 
@@ -131,6 +137,22 @@ node tests/helpers/build/tool-loop-test.js <client command> [args...]
 
 ```bash
 node tests/helpers/build/tool-loop-test.js node mcp-client-typescript/build/index.js node tests/helpers/build/mock-mcp-server.js
+```
+
+### interrupt-test.ts
+
+Runs the Ctrl-C test described above. The client command must end with the mock server's path; the helper adds a PID file argument after it.
+
+**Usage**:
+
+```bash
+node tests/helpers/build/interrupt-test.js <client command> [args...] <mock server path>
+```
+
+**Example**:
+
+```bash
+node tests/helpers/build/interrupt-test.js node mcp-client-typescript/build/index.js node tests/helpers/build/mock-mcp-server.js
 ```
 
 ## CI/CD Integration

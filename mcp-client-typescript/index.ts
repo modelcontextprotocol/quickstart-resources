@@ -120,11 +120,12 @@ class MCPClient {
     }
   }
 
-  async processQuery(query: string) {
+  async processQuery(query: string, signal?: AbortSignal) {
     /**
      * Process a query using Claude and available tools
      *
      * @param query - The user's input query
+     * @param signal - Aborts the query's API and tool calls
      * @returns Processed response as a string
      */
     const historyLength = this.messages.length;
@@ -138,7 +139,7 @@ class MCPClient {
         system: SYSTEM_PROMPT,
         messages: this.messages,
         tools: this.tools,
-      });
+      }, { signal });
 
       if (response.stop_reason === "refusal") {
         // Drop the refused query so a follow-up doesn't send it again.
@@ -180,7 +181,7 @@ class MCPClient {
           result = await this.mcp.callTool({
             name: toolUse.name,
             arguments: toolArgs,
-          });
+          }, { signal });
         } catch (error) {
           if (!(error instanceof ProtocolError)) throw error;
           // A rejected call is the model's mistake to correct, so it goes back
@@ -228,6 +229,7 @@ class MCPClient {
     });
     // rl.question() doesn't reject on stdin EOF on its own; wire its close
     // event to an AbortSignal so EOF (Ctrl-D) and SIGINT both unblock it.
+    // The signal also aborts a query in progress.
     const ac = new AbortController();
     const onClose = () => ac.abort();
     rl.on("close", onClose);
@@ -256,9 +258,10 @@ class MCPClient {
 
         const historyLength = this.messages.length;
         try {
-          const response = await this.processQuery(message);
+          const response = await this.processQuery(message, ac.signal);
           console.log("\n" + response);
         } catch (e) {
+          if (ac.signal.aborted) break; // Ctrl-C during the query
           // Drop the failed query so a follow-up doesn't send it again.
           this.messages.length = historyLength;
           console.log(`\nError: ${e instanceof Error ? e.message : String(e)}`);

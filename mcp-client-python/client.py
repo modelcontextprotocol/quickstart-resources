@@ -217,7 +217,16 @@ async def read_line(prompt: str) -> str:
     loop = asyncio.get_running_loop()
     line = loop.create_future()
 
+    def finish(result, error):
+        if line.done():
+            return  # Ctrl-C cancelled the read
+        if error:
+            line.set_exception(error)
+        else:
+            line.set_result(result)
+
     def read():
+        result, error = None, None
         try:
             # The raw stream takes no lock, so exiting mid-read is safe.
             data = sys.stdin.buffer.raw.readline()
@@ -225,9 +234,11 @@ async def read_line(prompt: str) -> str:
                 raise EOFError
             result = data.decode(sys.stdin.encoding, sys.stdin.errors)
         except Exception as e:
-            loop.call_soon_threadsafe(line.set_exception, e)
-        else:
-            loop.call_soon_threadsafe(line.set_result, result)
+            error = e
+        try:
+            loop.call_soon_threadsafe(finish, result, error)
+        except RuntimeError:
+            pass  # the loop has closed: the client is exiting
 
     print(prompt, end="", flush=True)
 

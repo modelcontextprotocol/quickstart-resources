@@ -25,6 +25,7 @@
  * exactly what is in this file.
  */
 
+import { writeFileSync } from "node:fs";
 import type { Implementation, Tool } from "@modelcontextprotocol/server";
 import { Server } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
@@ -183,6 +184,9 @@ function buildServer(): Server {
 
 serveStdio(buildServer);
 console.error("Mock MCP Server running on stdio");
+
+// The Ctrl-C test passes a file to write the PID to, to check the server exits.
+if (process.argv[2]) writeFileSync(process.argv[2], String(process.pid));
 
 // Verify that tools/list was called when the connection closes
 process.stdin.on("end", () => {
