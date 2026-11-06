@@ -40,10 +40,11 @@
  *  - "after clear", typed after a blank line and ` clear `: the history must be
  *    empty again, and the blank line must not have been sent.
  *
- * Every request must carry the same system prompt, every query after the first
- * must carry the earlier conversation, and the history must be one the API
- * accepts: no message empty, and every tool_use answered by a tool_result in
- * the next message.
+ * Every request must use API version 2026-10-21 and send the key as a bearer
+ * token, as the current SDKs do. Every request must carry the same system
+ * prompt, every query after the first must carry the earlier conversation, and
+ * the history must be one the API accepts: no message empty, and every
+ * tool_use answered by a tool_result in the next message.
  *
  * A client that does one tool round and stops, drops `tools` on the second
  * call, sends one tool_result per message, or gets the turn cap wrong fails
@@ -112,6 +113,10 @@ const INPUT = [
   "quit",
 ];
 
+/** The API version the current SDKs send, and the Rust client sets. */
+const API_VERSION = "2026-10-21";
+const API_KEY = "test-key";
+
 /** SYSTEM_PROMPT in every client. */
 const SYSTEM_PROMPT =
   "You are a helpful assistant. Use the available tools when they help answer the question.";
@@ -131,6 +136,9 @@ type Request = {
 };
 
 const failures: string[] = [];
+/** Every anthropic-version and Authorization header the client sent. */
+const versionsSent = new Set<string>();
+const authSent = new Set<string>();
 let passed = 0;
 const calls: Record<Scenario, number> = {
   parallel: 0,
@@ -497,6 +505,8 @@ function startFakeApi(): Promise<http.Server> {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
+      versionsSent.add(String(req.headers["anthropic-version"]));
+      authSent.add(String(req.headers.authorization));
       let request: Request;
       try {
         request = JSON.parse(body) as Request;
@@ -540,7 +550,7 @@ function runClient(
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
-      env: { ...process.env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_API_KEY: "test-key" },
+      env: { ...process.env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_API_KEY: API_KEY },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -578,6 +588,10 @@ function runClient(
 /** Checks on the client's output once it has exited. */
 function checkOutput(code: number | null, stdout: string) {
   check(code === 0, `client exited 0 (got ${code})`);
+  const versions = [...versionsSent].join(", ");
+  check(versions === API_VERSION, `every request uses API version ${API_VERSION} (got ${versions})`);
+  const auth = [...authSent].join(", ");
+  check(auth === `Bearer ${API_KEY}`, `every request sends the key as a bearer token (got ${auth})`);
   check(calls.parallel === 3, `parallel: API was called 3 times (got ${calls.parallel})`);
   check(stdout.includes(FINAL_ANSWER.parallel), "parallel: client printed the final answer");
 
