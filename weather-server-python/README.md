@@ -24,7 +24,7 @@ The server communicates over stdio, so running it directly just waits for a clie
 
 ```bash
 cd ../mcp-client-python
-uv run client.py ../weather-server-python/weather.py
+uv run client.py uv --directory ../weather-server-python run weather.py
 ```
 
 ## Tool annotations

@@ -23,10 +23,10 @@ cp .env.example .env
 
 ## Run the client
 
-Pass the path to a server script — `.js` servers are launched with `node`, `.py` servers with `python` (or `python3`, depending on the platform):
+Pass the command that starts the server, and its arguments:
 
 ```bash
-node build/index.js ../weather-server-typescript/build/index.js
+node build/index.js node ../weather-server-typescript/build/index.js
 ```
 
 (Build the server first — see its README.)

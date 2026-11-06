@@ -21,16 +21,16 @@ cp .env.example .env
 
 ## Run the client
 
-Pass the path to a server script. `.py` servers are launched with `uv`, `.js` servers with `node`:
+Pass the command that starts the server, and its arguments:
 
 ```bash
-uv run client.py ../weather-server-python/weather.py
+uv run client.py uv --directory ../weather-server-python run weather.py
 ```
 
 or, against the TypeScript server (build it first — see its README):
 
 ```bash
-uv run client.py ../weather-server-typescript/build/index.js
+uv run client.py node ../weather-server-typescript/build/index.js
 ```
 
 Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. The client keeps the conversation for the whole session, so a follow-up such as "And the alerts for that state?" works. Type `clear` to start a new conversation, or `quit` to exit.

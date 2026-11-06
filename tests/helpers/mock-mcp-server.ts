@@ -2,7 +2,8 @@
 /**
  * Mock MCP Server for testing clients
  *
- * Verifies that clients call `tools/list`, and advertises tools whose output
+ * Verifies that clients call `tools/list` and identify themselves as
+ * `mcp-client-<language>` version 1.0.0, and advertises tools whose output
  * schemas cover both shapes a structured result can take: an object root, and
  * an array root (allowed as of protocol revision 2026-07-28).
  *
@@ -24,13 +25,17 @@
  * exactly what is in this file.
  */
 
-import type { Tool } from "@modelcontextprotocol/server";
+import type { Implementation, Tool } from "@modelcontextprotocol/server";
 import { Server } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { IMAGE_DATA, RESOURCE_TEXT, STRUCTURED_ONLY_VALUE } from "./mock-values.js";
 
 // Track whether tools/list was called
 let toolsListCalled = false;
+
+/** The client info every quickstart client sends. */
+const CLIENT_NAME = /^mcp-client-(python|typescript|go|rust|ruby)$/;
+const CLIENT_VERSION = "1.0.0";
 
 const TOOLS: Tool[] = [
   {
@@ -100,7 +105,17 @@ function buildServer(): Server {
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler("tools/list", async () => {
+  server.setRequestHandler("tools/list", async (_request, ctx) => {
+    // 2026-07-28 clients send their info with every request; 2025-11-25
+    // clients send it once, in initialize.
+    const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
+    const info = (envelope?.["io.modelcontextprotocol/clientInfo"] ??
+      server.getClientVersion()) as Implementation | undefined;
+    if (!info || !CLIENT_NAME.test(info.name) || info.version !== CLIENT_VERSION) {
+      throw new Error(
+        `Expected client info mcp-client-<language> ${CLIENT_VERSION}, got ${JSON.stringify(info)}`,
+      );
+    }
     toolsListCalled = true;
     return { tools: TOOLS };
   });

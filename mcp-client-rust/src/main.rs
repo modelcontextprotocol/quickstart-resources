@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 const MODEL_ANTHROPIC: &str = "claude-sonnet-5";
@@ -214,6 +213,7 @@ impl MCPClient {
             )
             .await?;
 
+        // The tools are listed once, here; this client doesn't follow later changes.
         let rmcp_tools = session
             .list_all_tools()
             .await
@@ -405,18 +405,25 @@ impl MCPClient {
         println!("\nMCP Client Started!");
         println!("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.");
 
-        let mut stdin = BufReader::new(io::stdin());
-        let mut input = String::new();
+        // Read lines on a plain thread. tokio's stdin waits for a pending read
+        // when the program exits, so Ctrl-C at the prompt would hang.
+        let (tx, mut lines) = tokio::sync::mpsc::unbounded_channel();
+        std::thread::spawn(move || {
+            for line in std::io::stdin().lines() {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
 
         loop {
             print!("\nQuery: ");
             std::io::Write::flush(&mut std::io::stdout())?;
 
-            input.clear();
-            if stdin.read_line(&mut input).await? == 0 {
+            let Some(input) = lines.recv().await else {
                 break; // EOF
-            }
-
+            };
+            let input = input?;
             let query = input.trim();
             if query.eq_ignore_ascii_case("quit") {
                 break;
@@ -462,13 +469,13 @@ async fn main() -> Result<()> {
     let server_args: Vec<String> = args.collect();
 
     if server_args.is_empty() {
-        eprintln!("Usage: cargo run -- <server_script_or_binary> [args...]");
+        eprintln!("Usage: cargo run -- <server_command> [args...]");
         std::process::exit(1);
     }
 
     let mut client = MCPClient::new()?;
 
-    let result = async {
+    let run = async {
         client.connect_to_server(&server_args).await?;
 
         // Connecting and listing tools needs no credentials; querying them
@@ -486,8 +493,15 @@ async fn main() -> Result<()> {
         }
 
         client.chat_loop().await
-    }
-    .await;
+    };
+    // Ctrl-C quits like `quit`, so cleanup still runs.
+    let result = tokio::select! {
+        result = run => result,
+        _ = tokio::signal::ctrl_c() => {
+            println!();
+            Ok(())
+        }
+    };
 
     let cleanup_result = client.cleanup().await;
 
