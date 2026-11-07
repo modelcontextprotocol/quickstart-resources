@@ -22,7 +22,7 @@ The server communicates over stdio, so running it directly just waits for a clie
 
 ```bash
 cd ../mcp-client-go
-go run main.go ../weather-server-go/weather
+go run . ../weather-server-go/weather
 ```
 
 ## Tool annotations

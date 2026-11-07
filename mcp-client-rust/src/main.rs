@@ -214,6 +214,7 @@ impl MCPClient {
             )
             .await?;
 
+        // The tools are listed once, here; this client doesn't follow later changes.
         let rmcp_tools = session
             .list_all_tools()
             .await
@@ -462,7 +463,7 @@ async fn main() -> Result<()> {
     let server_args: Vec<String> = args.collect();
 
     if server_args.is_empty() {
-        eprintln!("Usage: cargo run -- <server_script_or_binary> [args...]");
+        eprintln!("Usage: cargo run -- <server_command> [args...]");
         std::process::exit(1);
     }
 

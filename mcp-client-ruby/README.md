@@ -22,10 +22,10 @@ cp .env.example .env
 
 ## Run the client
 
-Pass the path to a server script. `.rb` servers are launched with `ruby`, `.py` with `python3`, and `.js` with `node`:
+Pass the command that starts the server, and its arguments:
 
 ```bash
-bundle exec ruby client.rb ../weather-server-ruby/weather.rb
+bundle exec ruby client.rb ruby ../weather-server-ruby/weather.rb
 ```
 
 Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. The client keeps the conversation for the whole session, so a follow-up such as "And the alerts for that state?" works. Type `clear` to start a new conversation, or `quit` to exit.
