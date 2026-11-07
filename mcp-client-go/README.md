@@ -23,13 +23,13 @@ cp .env.example .env
 Pass the command that starts the server — a binary or an interpreter plus its arguments:
 
 ```bash
-go run main.go ../weather-server-go/weather
+go run . ../weather-server-go/weather
 ```
 
 (Build the server first with `go build -o weather` in its directory.) Any server command works, for example the Python server:
 
 ```bash
-go run main.go uv --directory ../weather-server-python run weather.py
+go run . uv --directory ../weather-server-python run weather.py
 ```
 
 Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. The client keeps the conversation for the whole session, so a follow-up such as "And the alerts for that state?" works. Type `clear` to start a new conversation, or `quit` to exit.

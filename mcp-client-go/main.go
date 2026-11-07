@@ -132,7 +132,7 @@ func (c *MCPClient) ConnectToServer(ctx context.Context, serverArgs []string) er
 	client := mcp.NewClient(
 		&mcp.Implementation{
 			Name:    "mcp-client-go",
-			Version: "0.1.0",
+			Version: "1.0.0",
 		},
 		nil,
 	)
@@ -149,7 +149,7 @@ func (c *MCPClient) ConnectToServer(ctx context.Context, serverArgs []string) er
 
 	c.session = session
 
-	// List available tools
+	// The tools are listed once, here; this client doesn't follow later changes.
 	toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
 		return fmt.Errorf("failed to list tools: %w", err)
@@ -394,7 +394,7 @@ func (c *MCPClient) Cleanup() error {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: go run main.go <server_script_or_binary> [args...]")
+		fmt.Fprintln(os.Stderr, "Usage: go run . <server_command> [args...]")
 		os.Exit(1)
 	}
 

@@ -19,33 +19,26 @@ class MCPClient
     @mcp_client = nil
     @transport = nil
     @anthropic_client = nil
+    @tools = []
     @messages = []
   end
 
-  def connect_to_server(server_script_path)
-    command = case File.extname(server_script_path)
-    when ".rb"
-      "ruby"
-    when ".py"
-      "python3"
-    when ".js"
-      "node"
-    else
-      raise ArgumentError, "Server script must be a .rb, .py, or .js file."
-    end
-
-    @transport = MCP::Client::Stdio.new(command: command, args: [server_script_path])
+  def connect_to_server(server_command)
+    @transport = MCP::Client::Stdio.new(command: server_command.first, args: server_command.drop(1))
     @mcp_client = MCP::Client.new(transport: @transport)
-    @mcp_client.connect
+    @mcp_client.connect(client_info: { name: "mcp-client-ruby", version: "1.0.0" })
+
+    # The tools are listed once, here; this client doesn't follow later changes.
+    @tools = @mcp_client.tools
 
     # The spec says clients SHOULD validate structured results against the
     # schema the tool declares. This SDK's client does not do it, so compile
     # each declared schema once here and check results as they arrive.
-    @output_schemas = @mcp_client.tools.each_with_object({}) do |tool, schemas|
+    @output_schemas = @tools.each_with_object({}) do |tool, schemas|
       schemas[tool.name] = MCP::Tool::OutputSchema.new(tool.output_schema) if tool.output_schema
     end
 
-    tool_names = @mcp_client.tools.map(&:name)
+    tool_names = @tools.map(&:name)
     puts "\nConnected to server with tools: #{tool_names}"
   end
 
@@ -122,7 +115,7 @@ class MCPClient
     history_length = @messages.length
     @messages << { role: "user", content: query }
 
-    available_tools = @mcp_client.tools.map do |tool|
+    available_tools = @tools.map do |tool|
       { name: tool.name, description: tool.description, input_schema: tool.input_schema }
     end
 
@@ -229,14 +222,14 @@ class MCPClient
 end
 
 if ARGV.empty?
-  puts "Usage: ruby client.rb <path_to_server_script>"
+  warn "Usage: bundle exec ruby client.rb <server_command> [args...]"
   exit 1
 end
 
 client = MCPClient.new
 
 begin
-  client.connect_to_server(ARGV[0])
+  client.connect_to_server(ARGV)
 
   api_key = ENV["ANTHROPIC_API_KEY"]
   if api_key.nil? || api_key.empty?
@@ -249,7 +242,7 @@ begin
 
   client.chat_loop
 rescue => e
-  puts "Error: #{e.message}"
+  warn "Error: #{e.message}"
   exit 1
 ensure
   client.cleanup
