@@ -1,7 +1,7 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    anthropic (2.4.0)
+    anthropic (2.6.0)
       base64 (~> 0.1)
       connection_pool (>= 2, < 4)
       opentelemetry-api (>= 1.2.4, < 2)
@@ -17,7 +17,7 @@ GEM
       regexp_parser (~> 2.0)
       simpleidn (~> 0.2)
     logger (1.7.0)
-    mcp (1.8.2)
+    mcp (1.9.0)
       json_schemer (>= 2.4)
     opentelemetry-api (1.11.1)
       logger
