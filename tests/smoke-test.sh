@@ -97,12 +97,29 @@ test_weather_server_ruby() {
 # The client tests drive the no-API-key path, where each client prints a notice
 # and exits. Empty rather than unset: dotenv skips a name already present in
 # ENV, so a key in the environment or a local .env would start the chat loop.
+# Each first runs the client with no server command, which must print usage to
+# stderr, nothing to stdout, and exit 1.
+
+# Usage: check_usage <client command> [args...]
+check_usage() {
+    local stdout stderr_file status
+    stderr_file=$(mktemp)
+    stdout=$("$@" 2>"${stderr_file}") && status=0 || status=$?
+    local stderr
+    stderr=$(cat "${stderr_file}")
+    rm -f "${stderr_file}"
+    if [ "${status}" -ne 1 ] || [ -n "${stdout}" ] || [[ "${stderr}" != *Usage* ]]; then
+        print_error "with no server command, expected usage on stderr and exit 1 (got exit ${status}, stdout '${stdout}', stderr '${stderr}')"
+        return 1
+    fi
+}
 
 # Test: Python MCP client
 test_mcp_client_python() {
     check_dependency uv || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-python"
-    ANTHROPIC_API_KEY= uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}" >/dev/null 2>&1
+    check_usage uv --directory "${client_dir}" run python "${client_dir}/client.py" || return 1
+    ANTHROPIC_API_KEY= uv --directory "${client_dir}" run python "${client_dir}/client.py" node "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Test: TypeScript MCP client
@@ -111,7 +128,8 @@ test_mcp_client_typescript() {
     check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
     ensure_built "${client_dir}" "" || return 1
-    ANTHROPIC_API_KEY= node "${client_dir}/build/index.js" "${MOCK_SERVER}" >/dev/null 2>&1
+    check_usage node "${client_dir}/build/index.js" || return 1
+    ANTHROPIC_API_KEY= node "${client_dir}/build/index.js" node "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
 # Test: Ruby MCP client
@@ -120,7 +138,8 @@ test_mcp_client_ruby() {
     check_dependency bundle || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-ruby"
     ensure_bundled "${client_dir}" || return 1
-    (cd "${client_dir}" && ANTHROPIC_API_KEY= bundle exec ruby client.rb "${MOCK_SERVER}") >/dev/null 2>&1
+    (cd "${client_dir}" && check_usage bundle exec ruby client.rb) || return 1
+    (cd "${client_dir}" && ANTHROPIC_API_KEY= bundle exec ruby client.rb node "${MOCK_SERVER}") >/dev/null 2>&1
 }
 
 # Test: Go MCP client
@@ -135,6 +154,7 @@ test_mcp_client_go() {
         return 1
     }
 
+    check_usage "${client_bin}" || return 1
     ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
@@ -151,6 +171,7 @@ test_mcp_client_rust() {
         return 1
     }
 
+    check_usage "${client_bin}" || return 1
     ANTHROPIC_API_KEY= "${client_bin}" node "${MOCK_SERVER}" >/dev/null 2>&1
 }
 
@@ -167,7 +188,7 @@ test_mcp_client_rust() {
 test_tool_loop_python() {
     check_dependency uv || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-python"
-    node "${TOOL_LOOP_TEST}" uv --directory "${client_dir}" run python "${client_dir}/client.py" "${MOCK_SERVER}"
+    node "${TOOL_LOOP_TEST}" uv --directory "${client_dir}" run python "${client_dir}/client.py" node "${MOCK_SERVER}"
 }
 
 # Test: TypeScript MCP client tool loop
@@ -176,7 +197,7 @@ test_tool_loop_typescript() {
     check_dependency npm || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-typescript"
     ensure_built "${client_dir}" "" || return 1
-    node "${TOOL_LOOP_TEST}" node "${client_dir}/build/index.js" "${MOCK_SERVER}"
+    node "${TOOL_LOOP_TEST}" node "${client_dir}/build/index.js" node "${MOCK_SERVER}"
 }
 
 # Test: Ruby MCP client tool loop
@@ -185,7 +206,7 @@ test_tool_loop_ruby() {
     check_dependency bundle || return 1
     local client_dir="${PROJECT_ROOT}/mcp-client-ruby"
     ensure_bundled "${client_dir}" || return 1
-    (cd "${client_dir}" && node "${TOOL_LOOP_TEST}" bundle exec ruby client.rb "${MOCK_SERVER}")
+    (cd "${client_dir}" && node "${TOOL_LOOP_TEST}" bundle exec ruby client.rb node "${MOCK_SERVER}")
 }
 
 # Test: Go MCP client tool loop

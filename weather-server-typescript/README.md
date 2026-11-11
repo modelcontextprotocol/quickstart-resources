@@ -25,7 +25,7 @@ The server communicates over stdio, so running it directly just waits for a clie
 ```bash
 cd ../mcp-client-typescript
 npm install && npm run build
-node build/index.js ../weather-server-typescript/build/index.js
+node build/index.js node ../weather-server-typescript/build/index.js
 ```
 
 ## Tool annotations

@@ -1,13 +1,13 @@
 import asyncio
 import json
 import os
+import sys
 from contextlib import AsyncExitStack
-from pathlib import Path
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from mcp import Client, MCPError, StdioServerParameters
-from mcp_types import CallToolResult, EmbeddedResource, ImageContent, TextContent, TextResourceContents
+from mcp_types import CallToolResult, EmbeddedResource, ImageContent, Implementation, TextContent, TextResourceContents
 
 load_dotenv()  # load environment variables from .env
 
@@ -58,6 +58,7 @@ class MCPClient:
         self.client: Client | None = None
         self.exit_stack = AsyncExitStack()
         self._anthropic: Anthropic | None = None
+        self.tools: list[dict] = []
         self.messages: list[dict] = []
 
     @property
@@ -67,46 +68,40 @@ class MCPClient:
             self._anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         return self._anthropic
 
-    async def connect_to_server(self, server_script_path: str):
+    async def connect_to_server(self, server_command: list[str]):
         """Connect to an MCP server
 
         Args:
-            server_script_path: Path to the server script (.py or .js)
+            server_command: The command that starts the server, and its arguments
         """
-        is_python = server_script_path.endswith(".py")
-        is_js = server_script_path.endswith(".js")
-        if not (is_python or is_js):
-            raise ValueError("Server script must be a .py or .js file")
-
-        if is_python:
-            path = Path(server_script_path).resolve()
-            server_params = StdioServerParameters(
-                command="uv",
-                args=["--directory", str(path.parent), "run", path.name],
-                env=None,
-            )
-        else:
-            server_params = StdioServerParameters(command="node", args=[server_script_path], env=None)
+        server_params = StdioServerParameters(command=server_command[0], args=server_command[1:])
 
         # Client launches the command itself when given StdioServerParameters.
-        # "auto" probes server/discover, falling back to the 2025-11-25 handshake.
-        self.client = await self.exit_stack.enter_async_context(Client(server_params, mode="auto"))
+        # "auto", the SDK's default, probes server/discover, falling back to the
+        # 2025-11-25 handshake.
+        self.client = await self.exit_stack.enter_async_context(
+            Client(
+                server_params,
+                mode="auto",
+                client_info=Implementation(name="mcp-client-python", version="1.0.0"),
+            )
+        )
 
-        # List available tools
+        # The tools are listed once, here; this client doesn't follow later changes.
         response = await self.client.list_tools()
-        tools = response.tools
-        print(f"\nConnected over protocol {self.client.protocol_version} with tools:", [tool.name for tool in tools])
+        self.tools = [
+            {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
+            for tool in response.tools
+        ]
+        print(
+            f"\nConnected over protocol {self.client.protocol_version} with tools:",
+            [tool.name for tool in response.tools],
+        )
 
     async def process_query(self, query: str) -> str:
         """Process a query using Claude and available tools"""
         history_length = len(self.messages)
         self.messages.append({"role": "user", "content": query})
-
-        tools_response = await self.client.list_tools()
-        available_tools = [
-            {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
-            for tool in tools_response.tools
-        ]
 
         final_text = []
 
@@ -116,7 +111,7 @@ class MCPClient:
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=self.messages,
-                tools=available_tools,
+                tools=self.tools,
             )
 
             if response.stop_reason == "refusal":
@@ -215,12 +210,12 @@ class MCPClient:
 
 async def main():
     if len(sys.argv) < 2:
-        print("Usage: python client.py <path_to_server_script>")
+        print("Usage: uv run client.py <server_command> [args...]", file=sys.stderr)
         sys.exit(1)
 
     client = MCPClient()
     try:
-        await client.connect_to_server(sys.argv[1])
+        await client.connect_to_server(sys.argv[1:])
 
         # Check if we have a valid API key to continue
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -235,6 +230,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import sys
-
     asyncio.run(main())

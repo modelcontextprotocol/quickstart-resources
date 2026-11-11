@@ -78,7 +78,7 @@ class MCPClient {
     // 'auto' probes server/discover, falling back to the 2025-11-25 handshake.
     // The SDK's default is 'legacy'.
     this.mcp = new Client(
-      { name: "mcp-client-cli", version: "1.0.0" },
+      { name: "mcp-client-typescript", version: "1.0.0" },
       { versionNegotiation: { mode: "auto" } },
     );
   }
@@ -88,33 +88,20 @@ class MCPClient {
     return this._anthropic ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
 
-  async connectToServer(serverScriptPath: string) {
+  async connectToServer(serverCommand: string[]) {
     /**
      * Connect to an MCP server
      *
-     * @param serverScriptPath - Path to the server script (.py or .js)
+     * @param serverCommand - The command that starts the server, and its arguments
      */
     try {
-      // Determine script type and appropriate command
-      const isJs = serverScriptPath.endsWith(".js");
-      const isPy = serverScriptPath.endsWith(".py");
-      if (!isJs && !isPy) {
-        throw new Error("Server script must be a .js or .py file");
-      }
-      const command = isPy
-        ? process.platform === "win32"
-          ? "python"
-          : "python3"
-        : process.execPath;
-
-      // Initialize transport and connect to server
       this.transport = new StdioClientTransport({
-        command,
-        args: [serverScriptPath],
+        command: serverCommand[0],
+        args: serverCommand.slice(1),
       });
       await this.mcp.connect(this.transport);
 
-      // List available tools
+      // The tools are listed once, here; this client doesn't follow later changes.
       const toolsResult = await this.mcp.listTools();
       this.tools = toolsResult.tools.map((tool) => {
         return {
@@ -294,12 +281,13 @@ class MCPClient {
 
 async function main() {
   if (process.argv.length < 3) {
-    console.log("Usage: node build/index.js <path_to_server_script>");
+    console.error("Usage: node build/index.js <server_command> [args...]");
+    process.exitCode = 1;
     return;
   }
   const mcpClient = new MCPClient();
   try {
-    await mcpClient.connectToServer(process.argv[2]);
+    await mcpClient.connectToServer(process.argv.slice(2));
 
     // Check if we have a valid API key to continue
     const apiKey = process.env.ANTHROPIC_API_KEY;

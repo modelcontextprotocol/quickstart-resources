@@ -130,7 +130,7 @@ node tests/helpers/build/tool-loop-test.js <client command> [args...]
 **Example**:
 
 ```bash
-node tests/helpers/build/tool-loop-test.js node mcp-client-typescript/build/index.js tests/helpers/build/mock-mcp-server.js
+node tests/helpers/build/tool-loop-test.js node mcp-client-typescript/build/index.js node tests/helpers/build/mock-mcp-server.js
 ```
 
 ## CI/CD Integration
