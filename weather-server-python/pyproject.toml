@@ -10,7 +10,7 @@ dependencies = [
     "httpx2>=2.14.0",
     "mcp[cli]>=2.3.0",
     # weather.py imports BaseModel, Field, and RootModel directly. RootModel is v2-only.
-    "pydantic>=2.14.2",
+    "pydantic>=2.14.3",
 ]
 
 [build-system]
@@ -19,7 +19,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.17.3",
+    "ruff>=0.17.4",
 ]
 
 [project.scripts]
