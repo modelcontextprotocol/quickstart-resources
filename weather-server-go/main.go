@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -65,9 +64,14 @@ type AlertProperties struct {
 	Instruction string `json:"instruction"`
 }
 
-// Alert is one element of get_alerts' structured content. Returning []Alert
-// makes structuredContent a top-level JSON array rather than an object
-// wrapping one, which protocol revision 2026-07-28 is the first to allow.
+// Alerts is get_alerts' structured content. Revision 2026-07-28 allows a
+// top-level array, but 2025-11-25 clients reject one, and the SDK does not yet
+// convert it for them, so wrap the list.
+type Alerts struct {
+	Alerts []Alert `json:"alerts" jsonschema:"Active alerts, empty if there are none"`
+}
+
+// Alert is one element of Alerts.
 type Alert struct {
 	Event        string `json:"event" jsonschema:"The kind of weather event"`
 	Area         string `json:"area" jsonschema:"The area the alert covers"`
@@ -88,7 +92,7 @@ type Period struct {
 	DetailedForecast string `json:"detailed_forecast"`
 }
 
-// Forecast is get_forecast's structured content: the object case.
+// Forecast is get_forecast's structured content.
 type Forecast struct {
 	Latitude  float64  `json:"latitude" jsonschema:"Latitude the forecast is for"`
 	Longitude float64  `json:"longitude" jsonschema:"Longitude the forecast is for"`
@@ -204,10 +208,8 @@ func getForecast(ctx context.Context, req *mcp.CallToolRequest, input ForecastIn
 	return result, forecast, nil
 }
 
-// getAlerts returns []Alert, so the wire carries [{...}, {...}] and "no alerts"
-// is simply [].
 func getAlerts(ctx context.Context, req *mcp.CallToolRequest, input AlertsInput) (
-	*mcp.CallToolResult, []Alert, error,
+	*mcp.CallToolResult, Alerts, error,
 ) {
 	// Build alerts URL
 	stateCode := strings.ToUpper(input.State)
@@ -215,10 +217,11 @@ func getAlerts(ctx context.Context, req *mcp.CallToolRequest, input AlertsInput)
 
 	alertsData, err := makeNWSRequest[AlertsResponse](ctx, alertsURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to fetch alerts for state %s: %w", stateCode, err)
+		return nil, Alerts{}, fmt.Errorf("unable to fetch alerts for state %s: %w", stateCode, err)
 	}
 
-	// An empty result is an empty array, not an error.
+	// No alerts is an empty list, not an error. make, not a nil slice, so it
+	// marshals to [] rather than null.
 	alerts := make([]Alert, 0, len(alertsData.Features))
 	for _, feature := range alertsData.Features {
 		props := feature.Properties
@@ -244,19 +247,7 @@ func getAlerts(ctx context.Context, req *mcp.CallToolRequest, input AlertsInput)
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 	}
 
-	return result, alerts, nil
-}
-
-// alertsOutputSchema narrows the inferred root from ["null", "array"] to
-// "array": a nil slice would marshal to null, but getAlerts always builds one.
-func alertsOutputSchema() *jsonschema.Schema {
-	schema, err := jsonschema.For[[]Alert](nil)
-	if err != nil {
-		log.Fatalf("inferring get_alerts output schema: %v", err)
-	}
-	schema.Types = nil
-	schema.Type = "array"
-	return schema
+	return result, Alerts{Alerts: alerts}, nil
 }
 
 // weatherToolAnnotations returns hints for hosts: both tools only read data,
@@ -295,10 +286,9 @@ func main() {
 
 	// Add get_alerts tool
 	mcp.AddTool(server, &mcp.Tool{
-		Name:         "get_alerts",
-		Description:  "Get weather alerts for a US state",
-		OutputSchema: alertsOutputSchema(),
-		Annotations:  weatherToolAnnotations(),
+		Name:        "get_alerts",
+		Description: "Get weather alerts for a US state",
+		Annotations: weatherToolAnnotations(),
 	}, getAlerts)
 
 	// Run server on stdio transport

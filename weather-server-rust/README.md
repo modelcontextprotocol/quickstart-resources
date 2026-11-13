@@ -37,6 +37,6 @@ Both tools declare the same [annotations](https://modelcontextprotocol.io/specif
 
 ## Structured content
 
-Both tools declare an `output_schema` and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
+Both tools declare an `output_schema` and return `structured_content`, and both return an object: `get_alerts` returns `{"alerts": [...]}`, with an empty list when there are none.
 
-Note that an array-rooted schema requires a `2026-07-28` client: rmcp sends it as written on every connection rather than projecting it down, so an older client rejects the tool list.
+Revision `2026-07-28` is the first to allow a top-level array as the root of an output schema (see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec), but `2025-11-25` and earlier require an object, and that is still the revision most clients negotiate. rmcp sends an array schema as written on every connection rather than converting it, and an older client rejects it. So all five servers wrap the list in an object, and a `2025-11-25` client sees the same `get_alerts` as a `2026-07-28` one. They can return a bare array once every SDK converts it for older clients; see [#272](https://github.com/modelcontextprotocol/quickstart-resources/issues/272).

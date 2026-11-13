@@ -31,8 +31,8 @@ Both tools declare the same [annotations](https://modelcontextprotocol.io/specif
 
 ## Structured content
 
-Both tools advertise an `outputSchema` and return `StructuredContent`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
+Both tools advertise an `outputSchema` and return `StructuredContent`, and both return an object: `get_alerts` returns `{"alerts": [...]}`, with an empty list when there are none.
 
-`get_forecast` sets no `OutputSchema` on the `Tool`: the SDK infers one from the handler's return type, which is the idiomatic Go spelling. `get_alerts` overrides it, because inference widens a slice to `["null", "array"]` — a nil slice marshals to `null` — and the tool never returns nil.
+Neither tool sets `OutputSchema` on the `Tool`: the SDK infers one from the handler's return type, which is the idiomatic Go spelling. Inference types a slice field as `["null", "array"]`, because a nil slice marshals to `null`; the handlers always build a non-nil slice, so the tools never send `null`.
 
-Note that an array-rooted schema requires a `2026-07-28` client: the SDK sends it as written on every connection rather than projecting it down, so an older client rejects the tool list.
+Revision `2026-07-28` is the first to allow a top-level array as the root of an output schema (see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec), but `2025-11-25` and earlier require an object, and that is still the revision most clients negotiate. This SDK sends an array schema as written on every connection rather than converting it, and an older client rejects it. So all five servers wrap the list in an object, and a `2025-11-25` client sees the same `get_alerts` as a `2026-07-28` one. They can return a bare array once every SDK converts it for older clients; see [#272](https://github.com/modelcontextprotocol/quickstart-resources/issues/272).

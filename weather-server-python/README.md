@@ -33,8 +33,6 @@ Both tools declare the same [annotations](https://modelcontextprotocol.io/specif
 
 ## Structured content
 
-Both tools declare an output schema and return `structured_content`. `get_forecast` returns an object; `get_alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
+Both tools declare an output schema and return `structured_content`, and both return an object: `get_alerts` returns `{"alerts": [...]}`, with an empty list when there are none.
 
-`Alerts` is a `RootModel[list[Alert]]` rather than a plain `list[Alert]` because the SDK wraps non-object return types as `{"result": ...}`; a `RootModel` is taken as the schema exactly as written. See [Structured Output](https://py.sdk.modelcontextprotocol.io/v2/servers/structured-output/) in the SDK docs.
-
-Note that an array-rooted schema requires a `2026-07-28` client. This SDK does not project it down for older ones — it raises instead.
+Revision `2026-07-28` is the first to allow a top-level array as the root of an output schema (see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec), but `2025-11-25` and earlier require an object, and that is still the revision most clients negotiate. This SDK does not convert an array schema for an older client: `tools/list` fails with an internal error, so the client gets no tools at all. So all five servers wrap the list in an object, and a `2025-11-25` client sees the same `get_alerts` as a `2026-07-28` one. They can return a bare array once every SDK converts it for older clients; see [#272](https://github.com/modelcontextprotocol/quickstart-resources/issues/272).

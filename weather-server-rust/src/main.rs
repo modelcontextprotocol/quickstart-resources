@@ -68,9 +68,16 @@ struct ForecastPeriod {
     detailed_forecast: String,
 }
 
-/// One element of `get_alerts`' structured content. Declaring `Vec<Alert>` as
-/// the output schema makes `structuredContent` a top-level JSON array rather
-/// than an object wrapping one, which revision 2026-07-28 is the first to allow.
+/// `get_alerts`' structured content. Revision 2026-07-28 allows a top-level
+/// array, but 2025-11-25 clients reject one, and rmcp does not yet convert it
+/// for them, so wrap the list.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Alerts {
+    /// Active alerts, empty if there are none.
+    alerts: Vec<Alert>,
+}
+
+/// One element of `Alerts`.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Alert {
     /// The kind of weather event.
@@ -85,7 +92,7 @@ pub struct Alert {
     instructions: String,
 }
 
-/// `get_forecast`' structured content: the object case.
+/// `get_forecast`' structured content.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Forecast {
     /// Latitude the forecast is for.
@@ -188,7 +195,7 @@ impl Weather {
             idempotent_hint = true,
             open_world_hint = true
         ),
-        output_schema = schema_for_output::<Vec<Alert>>()
+        output_schema = schema_for_output::<Alerts>()
     )]
     async fn get_alerts(
         &self,
@@ -203,7 +210,7 @@ impl Weather {
             ))]));
         };
 
-        // An empty result is an empty array, not an error.
+        // No alerts is an empty list, not an error.
         let alerts: Vec<Alert> = data
             .features
             .into_iter()
@@ -233,7 +240,7 @@ impl Weather {
                 .join("\n---\n")
         };
 
-        dual_channel_result(text, &alerts)
+        dual_channel_result(text, Alerts { alerts })
     }
 
     #[tool(

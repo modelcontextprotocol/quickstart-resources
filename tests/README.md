@@ -10,14 +10,15 @@ The smoke tests verify:
 - **Clients**: Each MCP client (Python, TypeScript, Ruby, Go, Rust) can connect to a mock server and list tools
 - **Tool loop**: Each client (Python, TypeScript, Ruby, Go, Rust) runs a query through a scripted tool-use loop against a fake Anthropic API and forwards tool results correctly
 
+## Output schemas on both protocol revisions
+
+Each server test first opens a `2025-11-25` session with raw JSON-RPC — `initialize`, then `tools/list` — and checks that the call succeeds and that every `outputSchema` has an `object` root, which that revision requires. It deliberately skips the client SDK, which might quietly drop or rewrite a tool it can't accept and so hide what an older client receives. This is the regression test for [#272](https://github.com/modelcontextprotocol/quickstart-resources/issues/272), where four servers sent `get_alerts`' array-rooted schema to `2025-11-25` clients.
+
+It then connects with the TypeScript SDK in `auto` mode, which negotiates `2026-07-28`, and checks the same object roots there.
+
 ## Structured content
 
-Listing tools is not enough to catch a broken structured result, so each server test also **calls** every tool that declares an `outputSchema` and checks the answer:
-
-- the result must carry `structuredContent`, and it must conform to the declared schema (the SDK validates this and throws on a mismatch);
-- a tool with an array-rooted schema must return a **top-level JSON array**, and one with an object-rooted schema must return an object.
-
-The array case is the one worth guarding. A server that advertises `{"type": "array"}` and then answers `{"result": [...]}` passes a tools/list-only test and fails this one.
+Listing tools is not enough to catch a broken structured result, so each server test also **calls** every tool that declares an `outputSchema` and checks the answer: the result must carry `structuredContent`, it must conform to the declared schema (the SDK validates this and throws on a mismatch), and it must be an object.
 
 Tool calls reach the live NWS API. When it is unreachable the tools return an error result, which the test reports as a skip rather than a failure — someone else's outage should not fail the build.
 

@@ -2,23 +2,26 @@
 /**
  * Minimal MCP Test Client for testing servers
  *
- * Connects to a server, initializes, lists tools, and then checks the tools
- * actually honour what they advertise:
+ * First lists tools over a raw 2025-11-25 session, without the SDK, and checks
+ * that the call succeeds and that every `outputSchema` has an `object` root,
+ * which that revision requires. A client SDK may quietly drop or rewrite a
+ * tool it can't accept, so only the raw response shows what an older client
+ * receives.
+ *
+ * Then connects with the SDK, which negotiates 2026-07-28 where the server
+ * supports it, lists tools, and checks the tools honour what they advertise:
  *
  *  - every tool declares the same annotations (read-only, open-world);
+ *  - every `outputSchema` still has an `object` root;
  *  - every tool that declares an `outputSchema` is called, and the result must
  *    carry `structuredContent` (the SDK validates it against the schema for us
- *    and throws on a mismatch);
- *  - a tool whose `outputSchema` is array-rooted must answer with a top-level
- *    JSON array, not an object wrapping one.
- *
- * The second check is the point of the exercise. Listing tools alone would not
- * notice a server that advertises `{"type": "array"}` and then returns
- * `{"result": [...]}`.
+ *    and throws on a mismatch) that is an object, not an array.
  */
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 
 /** Arguments to call a tool with, chosen by matching its name. */
 const TOOL_ARGUMENTS: { match: RegExp; args: Record<string, unknown> }[] = [
@@ -49,8 +52,100 @@ function rootType(schema: unknown): string | undefined {
   return typeof type === "string" ? type : undefined;
 }
 
+/** Fails unless every tool's `outputSchema`, where it declares one, has an object root. */
+function assertObjectRoots(tools: { name: string; outputSchema?: unknown }[], era: string) {
+  for (const tool of tools) {
+    if (tool.outputSchema === undefined) continue;
+    const type = rootType(tool.outputSchema);
+    if (type !== "object") {
+      throw new Error(
+        `${tool.name} declares an outputSchema with root type ${JSON.stringify(type)} ` +
+          `on a ${era} session; it must be "object"`,
+      );
+    }
+  }
+}
+
+const LEGACY_PROTOCOL_VERSION = "2025-11-25";
+
+/**
+ * Sends `initialize` for 2025-11-25, then `tools/list`, as raw JSON-RPC over
+ * stdio, and checks the reply the way a strict 2025-11-25 client would.
+ */
+async function testLegacySession(command: string, args: string[]) {
+  const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
+  const lines = createInterface({ input: child.stdout });
+  const send = (message: object) => child.stdin.write(`${JSON.stringify(message)}\n`);
+
+  const responses = new Map<number, (message: any) => void>();
+  lines.on("line", (line) => {
+    let message: any;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    responses.get(message.id)?.(message);
+  });
+
+  const request = (id: number, method: string, params: object = {}) =>
+    new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`no response to ${method} within 60s`)),
+        60_000,
+      );
+      child.once("exit", (code) => reject(new Error(`server exited (${code}) before answering ${method}`)));
+      responses.set(id, (message) => {
+        clearTimeout(timer);
+        resolve(message);
+      });
+      send({ jsonrpc: "2.0", id, method, params });
+    });
+
+  try {
+    const init = await request(1, "initialize", {
+      protocolVersion: LEGACY_PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: { name: "mcp-test-client", version: "1.0.0" },
+    });
+    if (init.error) {
+      throw new Error(`initialize failed: ${JSON.stringify(init.error)}`);
+    }
+    if (init.result?.protocolVersion !== LEGACY_PROTOCOL_VERSION) {
+      throw new Error(
+        `server answered initialize with ${init.result?.protocolVersion}, not ${LEGACY_PROTOCOL_VERSION}`,
+      );
+    }
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+    const list = await request(2, "tools/list");
+    if (list.error) {
+      throw new Error(`tools/list failed: ${JSON.stringify(list.error)}`);
+    }
+    const tools = list.result?.tools;
+    if (!Array.isArray(tools) || tools.length === 0) {
+      throw new Error(`tools/list returned no tools: ${JSON.stringify(list.result)}`);
+    }
+    assertObjectRoots(tools, LEGACY_PROTOCOL_VERSION);
+    console.error(
+      `✓ ${LEGACY_PROTOCOL_VERSION} session: listed ${tools.length} tools, every outputSchema has an object root`,
+    );
+  } finally {
+    lines.close();
+    child.stdin.end();
+    child.kill();
+  }
+}
+
 async function testServer(command: string, args: string[]) {
   console.error(`Testing server: ${command} ${args.join(" ")}`);
+
+  try {
+    await testLegacySession(command, args);
+  } catch (error) {
+    console.error(`✗ Server test failed: ${error}`);
+    process.exit(1);
+  }
 
   const transport = new StdioClientTransport({ command, args });
 
@@ -63,10 +158,11 @@ async function testServer(command: string, args: string[]) {
 
   try {
     await client.connect(transport);
-    console.error("✓ Connected to server");
+    console.error(`✓ Connected to server, negotiated ${client.getNegotiatedProtocolVersion()}`);
 
     const { tools } = await client.listTools();
     console.error(`✓ Listed ${tools.length} tools`);
+    assertObjectRoots(tools, client.getNegotiatedProtocolVersion() ?? "negotiated");
 
     for (const tool of tools) {
       for (const [hint, value] of Object.entries(EXPECTED_ANNOTATIONS)) {
@@ -110,24 +206,11 @@ async function testServer(command: string, args: string[]) {
         );
       }
 
-      const expected = rootType(tool.outputSchema);
-      const isArray = Array.isArray(result.structuredContent);
-
-      if (expected === "array" && !isArray) {
-        throw new Error(
-          `${tool.name} declares an array-rooted output schema but returned ` +
-            `${JSON.stringify(result.structuredContent).slice(0, 80)}`,
-        );
-      }
-      if (expected === "object" && isArray) {
-        throw new Error(
-          `${tool.name} declares an object-rooted output schema but returned an array`,
-        );
+      if (Array.isArray(result.structuredContent)) {
+        throw new Error(`${tool.name} returned an array as structuredContent; expected an object`);
       }
 
-      console.error(
-        `✓ ${tool.name}: structuredContent is ${isArray ? "a top-level array" : "an object"}, matching its schema`,
-      );
+      console.error(`✓ ${tool.name}: structuredContent is an object, matching its schema`);
       checked += 1;
     }
 
