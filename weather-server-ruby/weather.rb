@@ -69,22 +69,27 @@ class GetAlerts < MCP::Tool
     required: ["state"]
   )
 
-  # A top-level array, not an object wrapping one. Declaring `type` at the root
-  # suppresses the object default the SDK would otherwise apply, and revision
-  # 2026-07-28 is the first to allow a non-object root.
+  # Revision 2026-07-28 allows a top-level array, but 2025-11-25 clients reject
+  # one, and the SDK does not yet convert it for them, so wrap the list.
   output_schema(
-    type: "array",
-    items: {
-      type: "object",
-      properties: {
-        event: { type: "string", description: "The kind of weather event" },
-        area: { type: "string", description: "The area the alert covers" },
-        severity: { type: "string", description: "How severe the event is" },
-        description: { type: "string", description: "What is happening" },
-        instructions: { type: "string", description: "What people in the area should do" }
-      },
-      required: ["event", "area", "severity", "description", "instructions"]
-    }
+    properties: {
+      alerts: {
+        type: "array",
+        description: "Active alerts, empty if there are none",
+        items: {
+          type: "object",
+          properties: {
+            event: { type: "string", description: "The kind of weather event" },
+            area: { type: "string", description: "The area the alert covers" },
+            severity: { type: "string", description: "How severe the event is" },
+            description: { type: "string", description: "What is happening" },
+            instructions: { type: "string", description: "What people in the area should do" }
+          },
+          required: ["event", "area", "severity", "description", "instructions"]
+        }
+      }
+    },
+    required: ["alerts"]
   )
 
   def self.call(state:, server_context: nil)
@@ -98,7 +103,7 @@ class GetAlerts < MCP::Tool
       return error_response("Unable to fetch alerts for #{state.upcase}.")
     end
 
-    # An empty result is an empty array, not an error.
+    # No alerts is an empty list, not an error.
     alerts = data["features"].map do |feature|
       properties = feature["properties"] || {}
       {
@@ -118,7 +123,7 @@ class GetAlerts < MCP::Tool
 
     MCP::Tool::Response.new(
       [{ type: "text", text: text }],
-      structured_content: alerts
+      structured_content: { alerts: alerts }
     )
   end
 end
@@ -143,7 +148,6 @@ class GetForecast < MCP::Tool
     required: ["latitude", "longitude"]
   )
 
-  # The object case, for contrast with get_alerts' array root.
   output_schema(
     type: "object",
     properties: {
