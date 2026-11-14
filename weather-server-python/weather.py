@@ -4,7 +4,7 @@ import httpx2
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field
 
 # Initialize the MCP server
 mcp = MCPServer("weather")
@@ -34,14 +34,14 @@ class Alert(BaseModel):
     instructions: str = Field(description="What people in the area should do")
 
 
-class Alerts(RootModel[list[Alert]]):
-    """The output schema of get_alerts: a top-level array, not an object.
+class Alerts(BaseModel):
+    """The output schema of get_alerts.
 
-    A plain `-> list[Alert]` annotation would be wrapped as `{"result": [...]}`.
-    A RootModel is a BaseModel, so it is taken as the schema as written, and a
-    RootModel over a list serializes as the bare list. Revision 2026-07-28 is
-    the first to allow a non-object root.
+    Revision 2026-07-28 allows a top-level array here, but 2025-11-25 clients
+    reject one, and the SDK does not yet convert it for them, so wrap the list.
     """
+
+    alerts: list[Alert] = Field(description="Active alerts, empty if there are none")
 
 
 class Period(BaseModel):
@@ -56,7 +56,7 @@ class Period(BaseModel):
 
 
 class Forecast(BaseModel):
-    """The output schema of get_forecast: the object case, for contrast."""
+    """The output schema of get_forecast."""
 
     latitude: float = Field(description="Latitude the forecast is for")
     longitude: float = Field(description="Longitude the forecast is for")
@@ -88,12 +88,12 @@ async def get_alerts(state: str) -> Alerts:
     if not data or "features" not in data:
         raise ToolError(f"Unable to fetch alerts for {state.upper()}.")
 
-    # An empty result is an empty array, not an error.
+    # No alerts is an empty list, not an error.
     #
     # `or` rather than a `get` default: NWS sends these fields as explicit
     # nulls rather than omitting them, and a default only covers a missing key.
     return Alerts(
-        [
+        alerts=[
             Alert(
                 event=props.get("event") or "Unknown",
                 area=props.get("areaDesc") or "Unknown",

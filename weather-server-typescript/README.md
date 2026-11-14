@@ -34,6 +34,8 @@ Both tools declare the same [annotations](https://modelcontextprotocol.io/specif
 
 ## Structured content
 
-Both tools declare an `outputSchema` and return `structuredContent`. `get-forecast` returns an object; `get-alerts` returns a top-level JSON array, which protocol revision `2026-07-28` is the first to allow — see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec.
+Both tools declare an `outputSchema` and return `structuredContent`, and both return an object: `get-alerts` returns `{"alerts": [...]}`, with an empty list when there are none.
 
-`serveStdio` serves both protocol eras from one factory, and the SDK projects the array-rooted schema down to the `{"result": [...]}` form for a `2025-11-25` client, so adopting it costs older clients nothing. See the [SDK documentation](https://ts.sdk.modelcontextprotocol.io/v2/).
+Revision `2026-07-28` is the first to allow a top-level array as the root of an output schema (see [Structured Content](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) in the spec), but `2025-11-25` and earlier require an object, and that is still the revision most clients negotiate. This SDK would cope with an array: it wraps one as `{"result": [...]}` for a `2025-11-25` client. The other four SDKs send it as written, which older clients reject, and the five examples should behave the same. So all five servers wrap the list in an object, and a `2025-11-25` client sees the same `get_alerts` as a `2026-07-28` one. They can return a bare array once every SDK converts it for older clients; see [#272](https://github.com/modelcontextprotocol/quickstart-resources/issues/272).
+
+`serveStdio` serves both protocol eras from one factory. See the [SDK documentation](https://ts.sdk.modelcontextprotocol.io/v2/).
