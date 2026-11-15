@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import signal
 import sys
 from contextlib import AsyncExitStack
 
@@ -182,7 +183,7 @@ class MCPClient:
             # input() blocks, so keep it off the event loop.
             try:
                 query = (await asyncio.to_thread(input, "\nQuery: ")).strip()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError:
                 break
 
             if query.lower() == "quit":
@@ -230,4 +231,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Ctrl-C exits at once; otherwise Python waits for the thread blocked in input().
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     asyncio.run(main())

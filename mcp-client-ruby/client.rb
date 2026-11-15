@@ -241,6 +241,9 @@ begin
   end
 
   client.chat_loop
+rescue Interrupt
+  # Ctrl-C: stop without a backtrace; `ensure` still cleans up.
+  puts
 rescue => e
   warn "Error: #{e.message}"
   exit 1

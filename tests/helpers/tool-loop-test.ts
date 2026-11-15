@@ -50,6 +50,10 @@
  * call, sends one tool_result per message, or gets the turn cap wrong fails
  * here and passes the no-key test.
  *
+ * A second client process checks that Ctrl-C at the prompt stops the client
+ * promptly and without a backtrace. `quit` and EOF are the clean exits; Ctrl-C
+ * only has to stop it, not hang on a blocked stdin read.
+ *
  * Usage: node tool-loop-test.js <client command> [args...]
  */
 
@@ -67,6 +71,8 @@ const STOP_NOTICE = `[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`;
 /** Every client prints this before reading a query. */
 const PROMPT = "Query: ";
 const CLIENT_TIMEOUT_MS = 180_000;
+/** How long a client may take to exit after Ctrl-C. */
+const INTERRUPT_TIMEOUT_MS = 15_000;
 
 const QUERIES = {
   parallel: "parallel tools",
@@ -585,6 +591,51 @@ function runClient(
   });
 }
 
+/**
+ * Starts the client, sends SIGINT to its process group at the prompt, as a
+ * terminal's Ctrl-C does, and checks that it exits without a backtrace.
+ * stdin stays open.
+ */
+function runInterrupted(command: string, args: string[], baseUrl: string): Promise<void> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      env: { ...process.env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_API_KEY: API_KEY },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+    const kill = (signal: NodeJS.Signals) => {
+      try {
+        process.kill(-child.pid!, signal);
+      } catch {
+        // Already gone.
+      }
+    };
+    let stdout = "";
+    let stderr = "";
+    let timer: NodeJS.Timeout | undefined;
+    const startup = setTimeout(() => kill("SIGKILL"), CLIENT_TIMEOUT_MS);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (timer || !stdout.includes(PROMPT)) return;
+      clearTimeout(startup);
+      kill("SIGINT");
+      timer = setTimeout(() => {
+        check(false, `Ctrl-C: client exited within ${INTERRUPT_TIMEOUT_MS / 1000}s`);
+        kill("SIGKILL");
+      }, INTERRUPT_TIMEOUT_MS);
+    });
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("close", () => {
+      clearTimeout(startup);
+      clearTimeout(timer);
+      if (!timer) check(false, "Ctrl-C: client showed its prompt");
+      // Python's traceback, or Ruby's uncaught `...: Interrupt`.
+      check(!/Traceback|KeyboardInterrupt|: Interrupt\b/.test(stderr), "Ctrl-C: client printed no backtrace");
+      resolve();
+    });
+  });
+}
+
 /** Checks on the client's output once it has exited. */
 function checkOutput(code: number | null, stdout: string) {
   check(code === 0, `client exited 0 (got ${code})`);
@@ -644,8 +695,9 @@ async function main() {
   console.error(`Testing client tool loop: ${command} ${args.join(" ")}`);
 
   const { code, stdout, stderr } = await runClient(command, args, baseUrl);
-  api.close();
   checkOutput(code, stdout);
+  await runInterrupted(command, args, baseUrl);
+  api.close();
 
   if (failures.length === 0) {
     console.error(`✓ Tool loop correct (${passed} checks)`);
