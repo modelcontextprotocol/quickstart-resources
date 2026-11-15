@@ -469,7 +469,7 @@ async fn main() -> Result<()> {
 
     let mut client = MCPClient::new()?;
 
-    let result = async {
+    let session = async {
         client.connect_to_server(&server_args).await?;
 
         // Connecting and listing tools needs no credentials; querying them
@@ -487,10 +487,28 @@ async fn main() -> Result<()> {
         }
 
         client.chat_loop().await
-    }
-    .await;
+    };
+
+    // Ctrl-C would otherwise kill the process before cleanup, so race it
+    // against the session; whichever finishes first, cleanup runs next.
+    let (result, interrupted) = tokio::select! {
+        result = session => (result, false),
+        _ = tokio::signal::ctrl_c() => {
+            println!();
+            (Ok(()), true)
+        }
+    };
 
     let cleanup_result = client.cleanup().await;
+
+    if interrupted {
+        // Tokio reads stdin on a blocking thread that can't be cancelled, and
+        // returning from main would wait for it, so exit directly.
+        if let Err(err) = cleanup_result {
+            eprintln!("Error: {err:#}");
+        }
+        std::process::exit(0);
+    }
 
     result?;
     cleanup_result?;

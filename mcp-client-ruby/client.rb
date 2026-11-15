@@ -241,6 +241,10 @@ begin
   end
 
   client.chat_loop
+rescue Interrupt
+  # Ctrl-C raises Interrupt, which isn't a StandardError, so `rescue => e`
+  # misses it. End quietly, as EOF does; `ensure` still cleans up.
+  puts
 rescue => e
   warn "Error: #{e.message}"
   exit 1
