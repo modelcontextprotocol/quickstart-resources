@@ -616,7 +616,7 @@ function runClient(
 
 /** Resolves with the promise's value, or with "timeout" after `ms`. */
 function within<T>(promise: Promise<T>, ms: number): Promise<T | "timeout"> {
-  return Promise.race([promise, sleep(ms, "timeout" as const)]);
+  return Promise.race([promise, sleep(ms, "timeout" as const, { ref: false })]);
 }
 
 /** Sends a signal to the child's whole process group, as a terminal does. */
