@@ -239,6 +239,8 @@ class MCPClient {
       rl.close();
     };
     process.once("SIGINT", onSigint);
+    // In a terminal, readline takes Ctrl-C itself instead of the process.
+    rl.on("SIGINT", onSigint);
 
     try {
       console.log("\nMCP Client Started!");
