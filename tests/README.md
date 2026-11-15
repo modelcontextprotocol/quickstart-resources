@@ -40,6 +40,8 @@ The fake API picks a script from the query text and checks every request the cli
 
 Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, drops what a tool returned, forgets the conversation, keeps a failed query or an empty reply, or ignores `stop_reason` passes the no-key test and fails this one.
 
+Two more runs check Ctrl-C. The helper starts the client in a process group of its own and sends `SIGINT` to the whole group, as a terminal does: once at the `Query:` prompt, and once while the fake API holds the request for a query without answering it. stdin stays open, so only the signal can end the client. It must exit 0 within 15 seconds, print no backtrace (`Traceback`, `Interrupt`, `panic`) on stderr, and shut down the MCP server. A client that hangs on a blocked stdin read, or skips its cleanup, fails here.
+
 All five clients are covered, including Rust: it calls the Messages API directly, so it honours `ANTHROPIC_BASE_URL` like the official SDKs do.
 
 ## Running Tests
@@ -112,6 +114,8 @@ It advertises two tools whose output schemas cover both shapes a structured resu
 
 Three more tools serve the tool-loop test's **tool result contents** query: `rejected_call` fails with a JSON-RPC error, `structured_only` returns `structuredContent` and an empty text block, and `non_text` returns an image, a text resource, an audio block, and an empty text block and resource. The values the test looks for are in `mock-values.ts`.
 
+Given `--pid-file <path>`, it writes its process ID there and ignores `SIGINT`. The tool-loop test's Ctrl-C runs use this to check that the client's cleanup, not the signal, ended the server.
+
 **Usage**:
 
 ```bash
@@ -120,7 +124,7 @@ node tests/helpers/build/mock-mcp-server.js
 
 ### tool-loop-test.ts
 
-Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the queries, a blank line and ` clear ` before the last one, and then `quit` at the client's prompts, and reports which checks failed along with the client's output.
+Runs a client through the scripted tool loop described above. It starts the fake Anthropic API, spawns the client command with `ANTHROPIC_BASE_URL` and a dummy `ANTHROPIC_API_KEY` set, types the queries, a blank line and ` clear ` before the last one, and then `quit` at the client's prompts. It then runs the client twice more to press Ctrl-C, appending `--pid-file` to the command so it reaches the mock server, and reports which checks failed along with the client's output.
 
 **Usage**:
 

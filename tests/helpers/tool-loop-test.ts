@@ -50,11 +50,23 @@
  * call, sends one tool_result per message, or gets the turn cap wrong fails
  * here and passes the no-key test.
  *
+ * Two more client processes check Ctrl-C. Each is started in a process group of
+ * its own, and SIGINT goes to the whole group, as a terminal sends it: once at
+ * the prompt, and once while the fake API holds a query's request without
+ * answering. stdin stays open, so only the signal can end the client. It must
+ * exit 0 within a few seconds, print no backtrace, and shut down the MCP server
+ * (the mock server ignores SIGINT in these runs, so the client's cleanup is
+ * what ends it).
+ *
  * Usage: node tool-loop-test.js <client command> [args...]
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { IMAGE_DATA, RESOURCE_TEXT, STRUCTURED_ONLY_VALUE } from "./mock-values.js";
 
 /** Sonnet 5 thinks adaptively; the clients reserve this much for it. */
@@ -67,6 +79,10 @@ const STOP_NOTICE = `[Stopped after ${MAX_TOOL_TURNS} tool-use turns]`;
 /** Every client prints this before reading a query. */
 const PROMPT = "Query: ";
 const CLIENT_TIMEOUT_MS = 180_000;
+/** How long a client may take to exit after Ctrl-C. */
+const INTERRUPT_TIMEOUT_MS = 15_000;
+/** The query the fake API never answers, so Ctrl-C lands while it is pending. */
+const PENDING_QUERY = "pending query";
 
 const QUERIES = {
   parallel: "parallel tools",
@@ -230,11 +246,16 @@ function historyProblem(messages: Message[]): string | undefined {
 
 /** The scenario a request belongs to: named by its most recent user query. */
 function scenarioOf(messages: Message[]): Scenario | undefined {
+  const query = latestQuery(messages);
+  return (Object.keys(QUERIES) as Scenario[]).find((key) => QUERIES[key] === query);
+}
+
+/** The text of the most recent user query, skipping tool results. */
+function latestQuery(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "user" || toolResultsOf(message).length > 0) continue;
-    const text = textOf(message.content).trim();
-    return (Object.keys(QUERIES) as Scenario[]).find((key) => QUERIES[key] === text);
+    return textOf(message.content).trim();
   }
   return undefined;
 }
@@ -500,6 +521,9 @@ function respond(request: Request): Reply {
   return { content: respondTurnLimit(scenario, n, request) };
 }
 
+/** Called when the fake API receives the pending query's request. */
+let onPendingRequest: (() => void) | undefined;
+
 function startFakeApi(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
     let body = "";
@@ -513,6 +537,11 @@ function startFakeApi(): Promise<http.Server> {
       } catch {
         check(false, "request body is JSON");
         res.writeHead(400).end();
+        return;
+      }
+      if (latestQuery(request.messages) === PENDING_QUERY) {
+        // Never answered: the request stays open until the client goes away.
+        onPendingRequest?.();
         return;
       }
       const { content, stopReason: scripted, error } = respond(request);
@@ -585,6 +614,108 @@ function runClient(
   });
 }
 
+/** Resolves with the promise's value, or with "timeout" after `ms`. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T | "timeout"> {
+  return Promise.race([promise, sleep(ms, "timeout" as const)]);
+}
+
+/** Sends a signal to the child's whole process group, as a terminal does. */
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals) {
+  try {
+    process.kill(-child.pid!, signal);
+  } catch {
+    // The group is already gone.
+  }
+}
+
+/** Whether a process is still running. */
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Starts the client, presses Ctrl-C at its prompt or while a query is pending,
+ * and checks that it exits cleanly and shuts the MCP server down. Returns the
+ * client's output if a check failed.
+ */
+async function runInterrupted(
+  command: string,
+  args: string[],
+  baseUrl: string,
+  during: "prompt" | "query",
+): Promise<string | undefined> {
+  const label = during === "prompt" ? "Ctrl-C at the prompt" : "Ctrl-C during a query";
+  const failuresBefore = failures.length;
+  const dir = mkdtempSync(join(tmpdir(), "tool-loop-"));
+  const pidFile = join(dir, "server.pid");
+
+  // The last arguments start the MCP server, so --pid-file reaches it.
+  const child = spawn(command, [...args, "--pid-file", pidFile], {
+    env: { ...process.env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_API_KEY: API_KEY },
+    stdio: ["pipe", "pipe", "pipe"],
+    detached: true,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+  const exited = new Promise<number | null>((resolve) => {
+    child.on("error", (error) => {
+      failures.push(`${label}: could not start client: ${error.message}`);
+      resolve(null);
+    });
+    child.on("close", (code) => resolve(code));
+  });
+  const prompted = new Promise<void>((resolve) => {
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.includes(PROMPT)) resolve();
+    });
+  });
+  const ready =
+    during === "prompt"
+      ? prompted
+      : prompted.then(() => {
+          const pending = new Promise<void>((resolve) => (onPendingRequest = resolve));
+          child.stdin.write(`${PENDING_QUERY}\n`);
+          return pending;
+        });
+
+  const reached = await within(Promise.race([ready.then(() => true), exited.then(() => false)]), CLIENT_TIMEOUT_MS);
+  if (reached === true) {
+    signalGroup(child, "SIGINT");
+    const code = await within(exited, INTERRUPT_TIMEOUT_MS);
+    if (code === "timeout") {
+      check(false, `${label}: client exited within ${INTERRUPT_TIMEOUT_MS / 1000}s`);
+      signalGroup(child, "SIGKILL");
+      await exited;
+    } else {
+      check(code === 0, `${label}: client exited 0 (got ${code})`);
+      check(
+        !/Traceback|KeyboardInterrupt|Interrupt\b|panicked|^panic:/m.test(stderr),
+        `${label}: no backtrace on stderr`,
+      );
+      // The server goes once the client closes its stdin; give it a moment.
+      const serverPid = Number(readFileSync(pidFile, "utf8"));
+      for (let i = 0; i < 20 && isRunning(serverPid); i++) await sleep(100);
+      check(!isRunning(serverPid), `${label}: the MCP server was shut down`);
+    }
+  } else {
+    check(false, `${label}: client ${during === "prompt" ? "showed its prompt" : "sent the query"}`);
+    signalGroup(child, "SIGKILL");
+    await exited;
+  }
+  onPendingRequest = undefined;
+  rmSync(dir, { recursive: true, force: true });
+
+  if (failures.length === failuresBefore) return undefined;
+  return `--- ${label}: client stdout ---\n${stdout.trim()}\n--- ${label}: client stderr ---\n${stderr.trim()}`;
+}
+
 /** Checks on the client's output once it has exited. */
 function checkOutput(code: number | null, stdout: string) {
   check(code === 0, `client exited 0 (got ${code})`);
@@ -644,8 +775,13 @@ async function main() {
   console.error(`Testing client tool loop: ${command} ${args.join(" ")}`);
 
   const { code, stdout, stderr } = await runClient(command, args, baseUrl);
-  api.close();
   checkOutput(code, stdout);
+  const interrupted = [
+    await runInterrupted(command, args, baseUrl, "prompt"),
+    await runInterrupted(command, args, baseUrl, "query"),
+  ].filter((output) => output !== undefined);
+  api.closeAllConnections();
+  api.close();
 
   if (failures.length === 0) {
     console.error(`✓ Tool loop correct (${passed} checks)`);
@@ -657,6 +793,7 @@ async function main() {
   console.error(stdout.trim());
   console.error("--- client stderr ---");
   console.error(stderr.trim());
+  for (const output of interrupted) console.error(output);
   process.exit(1);
 }
 

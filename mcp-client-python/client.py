@@ -225,6 +225,14 @@ async def main():
             return
 
         await client.chat_loop()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Ctrl-C. Undo the cancellation (3.11+) so cleanup can await, then exit
+        # directly: input() may still block a thread Python would wait for.
+        if sys.version_info >= (3, 11):
+            asyncio.current_task().uncancel()
+        await client.cleanup()
+        print(flush=True)
+        os._exit(0)
     finally:
         await client.cleanup()
 

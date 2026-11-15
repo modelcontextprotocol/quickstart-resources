@@ -489,8 +489,7 @@ async fn main() -> Result<()> {
         client.chat_loop().await
     };
 
-    // Ctrl-C would otherwise kill the process before cleanup, so race it
-    // against the session; whichever finishes first, cleanup runs next.
+    // Ctrl-C would otherwise kill the process before cleanup runs.
     let (result, interrupted) = tokio::select! {
         result = session => (result, false),
         _ = tokio::signal::ctrl_c() => {
@@ -502,8 +501,7 @@ async fn main() -> Result<()> {
     let cleanup_result = client.cleanup().await;
 
     if interrupted {
-        // Tokio reads stdin on a blocking thread that can't be cancelled, and
-        // returning from main would wait for it, so exit directly.
+        // Returning would wait for tokio's blocking stdin read, so exit directly.
         if let Err(err) = cleanup_result {
             eprintln!("Error: {err:#}");
         }

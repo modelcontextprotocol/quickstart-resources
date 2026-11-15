@@ -126,9 +126,7 @@ func (c *MCPClient) ConnectToServer(ctx context.Context, serverArgs []string) er
 		return fmt.Errorf("no server command provided")
 	}
 
-	// Create command to spawn server process. It isn't tied to ctx: cancelling
-	// ctx (Ctrl-C) would kill the server outright, and Cleanup should close the
-	// session first.
+	// Not tied to ctx: Ctrl-C would kill the server before Cleanup closes the session.
 	cmd := exec.Command(serverArgs[0], serverArgs[1:]...)
 
 	// Create MCP client
@@ -349,8 +347,7 @@ func (c *MCPClient) ChatLoop(ctx context.Context) error {
 	fmt.Println("\nMCP Client Started!")
 	fmt.Println("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.")
 
-	// Reading stdin blocks and can't be cancelled, so lines arrive on a
-	// channel and the loop also watches ctx, which Ctrl-C cancels.
+	// Reading stdin can't be cancelled, so read it on a goroutine and also watch ctx.
 	lines := make(chan string)
 	scanner := bufio.NewScanner(os.Stdin)
 	go func() {
@@ -427,8 +424,7 @@ func main() {
 		log.Fatalf("Failed to create MCP client: %v", err)
 	}
 
-	// Ctrl-C cancels ctx so the chat loop returns and Cleanup still runs.
-	// After the first one, restore the default so a second Ctrl-C force-quits.
+	// Ctrl-C cancels ctx so Cleanup still runs; a second Ctrl-C force-quits.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() {

@@ -182,7 +182,7 @@ test_mcp_client_rust() {
 # tool turns then an answer, tool calls past the turn limit, three tools whose
 # results need translating, a refusal, a tool call then an API error, an empty
 # reply, a reply cut off by max_tokens, and one after `clear`. It checks every request the client sends, the conversation
-# history included; see tests/README.md for what is checked.
+# history included, then presses Ctrl-C at the prompt and during a query; see tests/README.md for what is checked.
 
 # Test: Python MCP client tool loop
 test_tool_loop_python() {

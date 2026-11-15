@@ -25,6 +25,8 @@
  * exactly what is in this file.
  */
 
+import { writeFileSync } from "node:fs";
+
 import type { Implementation, Tool } from "@modelcontextprotocol/server";
 import { Server } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
@@ -179,6 +181,16 @@ function buildServer(): Server {
   });
 
   return server;
+}
+
+// The tool-loop test's Ctrl-C runs pass `--pid-file <path>` so they can check
+// afterwards that the client shut this server down. Ctrl-C in a terminal
+// signals the whole foreground process group, this server included; those runs
+// ignore it here, so only the client's cleanup can end the server.
+const pidFileAt = process.argv.indexOf("--pid-file");
+if (pidFileAt >= 0) {
+  writeFileSync(process.argv[pidFileAt + 1], String(process.pid));
+  process.on("SIGINT", () => {});
 }
 
 serveStdio(buildServer);
