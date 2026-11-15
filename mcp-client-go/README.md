@@ -32,7 +32,7 @@ go run . ../weather-server-go/weather
 go run . uv --directory ../weather-server-python run weather.py
 ```
 
-Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. The client keeps the conversation for the whole session, so a follow-up such as "And the alerts for that state?" works. Type `clear` to start a new conversation, or `quit` to exit.
+Type a question (for example, "What's the weather in Sacramento?") and Claude answers using the server's tools. The client keeps the conversation for the whole session, so a follow-up such as "And the alerts for that state?" works. Type `clear` to start a new conversation, or `quit` (or press Ctrl-D) to exit and shut the server down cleanly. Ctrl-C stops the client at once.
 
 Without an `ANTHROPIC_API_KEY`, the client still connects, prints the server's tools, and exits — useful for verifying the MCP wiring without credentials.
 

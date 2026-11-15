@@ -227,12 +227,12 @@ class MCPClient {
       output: process.stdout,
     });
     // rl.question() doesn't reject on stdin EOF on its own; wire its close
-    // event to an AbortSignal so EOF (Ctrl-D) and SIGINT both unblock it.
+    // event to an AbortSignal so EOF (Ctrl-D) unblocks it.
     const ac = new AbortController();
     const onClose = () => ac.abort();
     rl.on("close", onClose);
-    const onSigint = () => rl.close();
-    process.once("SIGINT", onSigint);
+    // In a terminal, readline takes Ctrl-C itself; exit at once, as the other clients do.
+    rl.on("SIGINT", () => process.exit(130));
 
     try {
       console.log("\nMCP Client Started!");
@@ -265,7 +265,6 @@ class MCPClient {
         }
       }
     } finally {
-      process.off("SIGINT", onSigint);
       rl.off("close", onClose);
       rl.close();
     }
