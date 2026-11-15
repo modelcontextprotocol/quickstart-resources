@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
@@ -125,8 +126,10 @@ func (c *MCPClient) ConnectToServer(ctx context.Context, serverArgs []string) er
 		return fmt.Errorf("no server command provided")
 	}
 
-	// Create command to spawn server process
-	cmd := exec.CommandContext(ctx, serverArgs[0], serverArgs[1:]...)
+	// Create command to spawn server process. It isn't tied to ctx: cancelling
+	// ctx (Ctrl-C) would kill the server outright, and Cleanup should close the
+	// session first.
+	cmd := exec.Command(serverArgs[0], serverArgs[1:]...)
 
 	// Create MCP client
 	client := mcp.NewClient(
@@ -346,17 +349,34 @@ func (c *MCPClient) ChatLoop(ctx context.Context) error {
 	fmt.Println("\nMCP Client Started!")
 	fmt.Println("Type your queries, 'clear' to forget the conversation, or 'quit' to exit.")
 
+	// Reading stdin blocks and can't be cancelled, so lines arrive on a
+	// channel and the loop also watches ctx, which Ctrl-C cancels.
+	lines := make(chan string)
 	scanner := bufio.NewScanner(os.Stdin)
+	go func() {
+		defer close(lines)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
 
 	for {
 		fmt.Print("\nQuery: ")
-		if !scanner.Scan() {
-			break // EOF
+		var line string
+		select {
+		case <-ctx.Done():
+			fmt.Println()
+			return nil
+		case l, ok := <-lines:
+			if !ok {
+				return scanner.Err() // EOF
+			}
+			line = l
 		}
 
-		query := strings.TrimSpace(scanner.Text())
+		query := strings.TrimSpace(line)
 		if strings.EqualFold(query, "quit") {
-			break
+			return nil
 		}
 		if strings.EqualFold(query, "clear") {
 			c.messages = nil
@@ -369,6 +389,10 @@ func (c *MCPClient) ChatLoop(ctx context.Context) error {
 
 		historyLength := len(c.messages)
 		response, err := c.ProcessQuery(ctx, query)
+		if ctx.Err() != nil {
+			fmt.Println()
+			return nil // Ctrl-C during a query
+		}
 		if err != nil {
 			// Drop the failed query so a follow-up doesn't send it again.
 			c.messages = c.messages[:historyLength]
@@ -378,8 +402,6 @@ func (c *MCPClient) ChatLoop(ctx context.Context) error {
 
 		fmt.Printf("\n%s\n", response)
 	}
-
-	return scanner.Err()
 }
 
 func (c *MCPClient) Cleanup() error {
@@ -405,9 +427,24 @@ func main() {
 		log.Fatalf("Failed to create MCP client: %v", err)
 	}
 
-	ctx := context.Background()
+	// Ctrl-C cancels ctx so the chat loop returns and Cleanup still runs.
+	// After the first one, restore the default so a second Ctrl-C force-quits.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 
 	if err := client.ConnectToServer(ctx, serverArgs); err != nil {
+		// The session may already be open if listing tools failed.
+		if cleanupErr := client.Cleanup(); cleanupErr != nil {
+			log.Printf("Cleanup error: %v", cleanupErr)
+		}
+		if ctx.Err() != nil {
+			fmt.Println()
+			return // Ctrl-C while connecting
+		}
 		log.Fatalf("Failed to connect to MCP server: %v", err)
 	}
 
