@@ -40,7 +40,7 @@ The fake API picks a script from the query text and checks every request the cli
 
 Finally the client must exit 0 on `quit`. A client that does one tool round and stops, drops `tools` on the follow-up call, sends one `tool_result` per message, gets the turn cap wrong, drops what a tool returned, forgets the conversation, keeps a failed query or an empty reply, or ignores `stop_reason` passes the no-key test and fails this one.
 
-A second run checks Ctrl-C: the helper starts the client in a process group of its own, sends `SIGINT` to the group at the `Query:` prompt, as a terminal does, and leaves stdin open. The client must exit within 15 seconds. `quit` and EOF are the clean exits, so only stopping promptly is checked, not the exit status; a client that hangs on a blocked stdin read fails here.
+A second run checks Ctrl-C: the helper starts the client in a process group of its own, sends `SIGINT` to the group at the `Query:` prompt, as a terminal does, and leaves stdin open. The client must exit within 15 seconds without printing a backtrace. `quit` and EOF are the clean exits, so the exit status isn't checked; a client that hangs on a blocked stdin read, or never reaches the prompt, fails here.
 
 All five clients are covered, including Rust: it calls the Messages API directly, so it honours `ANTHROPIC_BASE_URL` like the official SDKs do.
 

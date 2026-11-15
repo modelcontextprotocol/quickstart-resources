@@ -51,8 +51,8 @@
  * here and passes the no-key test.
  *
  * A second client process checks that Ctrl-C at the prompt stops the client
- * promptly. `quit` and EOF are the clean exits; Ctrl-C only has to stop it,
- * not hang on a blocked stdin read.
+ * promptly and without a backtrace. `quit` and EOF are the clean exits; Ctrl-C
+ * only has to stop it, not hang on a blocked stdin read.
  *
  * Usage: node tool-loop-test.js <client command> [args...]
  */
@@ -593,7 +593,8 @@ function runClient(
 
 /**
  * Starts the client, sends SIGINT to its process group at the prompt, as a
- * terminal's Ctrl-C does, and checks that it exits. stdin stays open.
+ * terminal's Ctrl-C does, and checks that it exits without a backtrace.
+ * stdin stays open.
  */
 function runInterrupted(command: string, args: string[], baseUrl: string): Promise<void> {
   return new Promise((resolve) => {
@@ -610,11 +611,9 @@ function runInterrupted(command: string, args: string[], baseUrl: string): Promi
       }
     };
     let stdout = "";
+    let stderr = "";
     let timer: NodeJS.Timeout | undefined;
-    const startup = setTimeout(() => {
-      check(false, "Ctrl-C: client showed its prompt");
-      kill("SIGKILL");
-    }, CLIENT_TIMEOUT_MS);
+    const startup = setTimeout(() => kill("SIGKILL"), CLIENT_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
       if (timer || !stdout.includes(PROMPT)) return;
@@ -625,9 +624,13 @@ function runInterrupted(command: string, args: string[], baseUrl: string): Promi
         kill("SIGKILL");
       }, INTERRUPT_TIMEOUT_MS);
     });
+    child.stderr.on("data", (chunk) => (stderr += chunk));
     child.on("close", () => {
       clearTimeout(startup);
       clearTimeout(timer);
+      if (!timer) check(false, "Ctrl-C: client showed its prompt");
+      // Python's traceback, or Ruby's uncaught `...: Interrupt`.
+      check(!/Traceback|KeyboardInterrupt|: Interrupt\b/.test(stderr), "Ctrl-C: client printed no backtrace");
       resolve();
     });
   });
