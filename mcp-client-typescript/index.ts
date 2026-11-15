@@ -232,7 +232,12 @@ class MCPClient {
     const ac = new AbortController();
     const onClose = () => ac.abort();
     rl.on("close", onClose);
-    const onSigint = () => rl.close();
+    // Only SIGINT cancels a pending query; EOF after a query lets it finish.
+    const interrupt = new AbortController();
+    const onSigint = () => {
+      interrupt.abort();
+      rl.close();
+    };
     process.once("SIGINT", onSigint);
 
     try {
@@ -257,10 +262,10 @@ class MCPClient {
 
         const historyLength = this.messages.length;
         try {
-          const response = await this.processQuery(message, ac.signal);
+          const response = await this.processQuery(message, interrupt.signal);
           console.log("\n" + response);
         } catch (e) {
-          if (ac.signal.aborted) break;
+          if (interrupt.signal.aborted) break;
           // Drop the failed query so a follow-up doesn't send it again.
           this.messages.length = historyLength;
           console.log(`\nError: ${e instanceof Error ? e.message : String(e)}`);
