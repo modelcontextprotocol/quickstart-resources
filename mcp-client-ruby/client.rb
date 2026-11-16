@@ -244,6 +244,7 @@ begin
 rescue Interrupt
   # Ctrl-C: stop without a backtrace; `ensure` still cleans up.
   puts
+  exit 130
 rescue => e
   warn "Error: #{e.message}"
   exit 1
