@@ -51,8 +51,8 @@
  * here and passes the no-key test.
  *
  * A second client process checks that Ctrl-C at the prompt stops the client
- * promptly and without a backtrace. `quit` and EOF are the clean exits; Ctrl-C
- * only has to stop it, not hang on a blocked stdin read.
+ * promptly, non-zero and without a backtrace. `quit` and EOF are the clean
+ * exits; Ctrl-C only has to stop it, not hang on a blocked stdin read.
  *
  * Usage: node tool-loop-test.js <client command> [args...]
  */
@@ -593,8 +593,8 @@ function runClient(
 
 /**
  * Starts the client, sends SIGINT to its process group at the prompt, as a
- * terminal's Ctrl-C does, and checks that it exits without a backtrace.
- * stdin stays open.
+ * terminal's Ctrl-C does, and checks that it exits non-zero without a
+ * backtrace. stdin stays open.
  */
 function runInterrupted(command: string, args: string[], baseUrl: string): Promise<void> {
   return new Promise((resolve) => {
@@ -625,10 +625,13 @@ function runInterrupted(command: string, args: string[], baseUrl: string): Promi
       }, INTERRUPT_TIMEOUT_MS);
     });
     child.stderr.on("data", (chunk) => (stderr += chunk));
-    child.on("close", () => {
+    child.on("close", (code, signal) => {
       clearTimeout(startup);
       clearTimeout(timer);
       if (!timer) check(false, "Ctrl-C: client showed its prompt");
+      // Not 0: Ctrl-C isn't a clean exit. Clients exit 130 or die by SIGINT,
+      // but `uv run` reports a SIGINT death as 2.
+      check(code !== 0, `Ctrl-C: client exited non-zero (got ${signal ?? code})`);
       // Python's traceback, or Ruby's uncaught `...: Interrupt`.
       check(!/Traceback|KeyboardInterrupt|: Interrupt\b/.test(stderr), "Ctrl-C: client printed no backtrace");
       resolve();
