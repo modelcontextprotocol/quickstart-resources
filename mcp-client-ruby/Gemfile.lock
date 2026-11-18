@@ -1,14 +1,14 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    anthropic (2.6.0)
+    anthropic (2.8.0)
       base64 (~> 0.1)
       connection_pool (>= 2, < 4)
       opentelemetry-api (>= 1.2.4, < 2)
       standardwebhooks (~> 1.0)
     base64 (0.3.0)
     bigdecimal (4.1.3)
-    connection_pool (3.0.2)
+    connection_pool (3.0.3)
     dotenv (3.2.0)
     hana (1.3.7)
     json_schemer (2.5.0)
@@ -17,13 +17,14 @@ GEM
       regexp_parser (~> 2.0)
       simpleidn (~> 0.2)
     logger (1.7.0)
-    mcp (1.9.0)
+    mcp (1.10.0)
       json_schemer (>= 2.4)
     opentelemetry-api (1.11.1)
       logger
-    regexp_parser (2.13.1)
+    regexp_parser (2.13.4)
     simpleidn (0.3.0)
-    standardwebhooks (1.1.0)
+    standardwebhooks (1.3.0)
+      base64 (~> 0.3.0)
 
 PLATFORMS
   aarch64-linux
