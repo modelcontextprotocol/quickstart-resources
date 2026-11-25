@@ -903,9 +903,9 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.61.2"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e37f27df77c7887edbc5f5a59ecd8e5ec4a669319266ec1b61068667a603183"
+checksum = "f4d2afab27172a0073112ce84a64ec7fd06f3b8bdad37d46e86c53c933ed232b"
 dependencies = [
  "ahash",
  "bytecount",
@@ -934,18 +934,18 @@ dependencies = [
 
 [[package]]
 name = "jsonschema-regex"
-version = "0.61.2"
+version = "0.63.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e41151614b6c927e21982be8bef5a26741ae5a0ae6a781eedee2aa930a980e6"
+checksum = "c3ef369677a99a8c7381196491eb4e0a718c337756cf82bdb91303933789f181"
 dependencies = [
  "regex-syntax",
 ]
 
 [[package]]
 name = "jsonschema-value"
-version = "0.61.2"
+version = "0.63.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1515b9a91134ef67d7bac95c2d76fbc7e383c4c55ee544204ceec8088f881fef"
+checksum = "d698d83c2661d1e6f289b567a73e95d5549ec155775260e93165110a583296f4"
 dependencies = [
  "ahash",
  "bytecount",
@@ -1356,9 +1356,9 @@ dependencies = [
 
 [[package]]
 name = "referencing"
-version = "0.61.2"
+version = "0.63.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a028057ef852c58a42d75e09da87b5e733f4030f4c7411728955e4f87203a577"
+checksum = "f768339da7ef756decd99f3c6ada0c0ffdc0a7522c37032916bed80db94d0b5c"
 dependencies = [
  "ahash",
  "fluent-uri",
@@ -1373,9 +1373,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.12.3"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
+checksum = "9807af0e638c12e753aa1b4e601791bf2a8f71274023c8bbeec12fc149950857"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1385,9 +1385,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.16"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fcfdb36bda0c880c5931cdc7a2bcdc8ba4556847b9d912bca70bc94708711ad"
+checksum = "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1396,9 +1396,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
 name = "reqwest"
